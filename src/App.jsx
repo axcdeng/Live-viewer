@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Play, RefreshCw, Loader, History, Plus, AlertCircle, X, Tv, Zap } from 'lucide-react';
+import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap } from 'lucide-react';
 import YouTube from 'react-youtube';
 import { format } from 'date-fns';
 import SettingsModal from './components/SettingsModal';
 import WebcastSelector from './components/WebcastSelector';
 import EventHistory from './components/EventHistory';
-import EventInput from './components/EventInput';
-import TeamInput from './components/TeamInput';
 import { getEventBySku, getTeamByNumber, getMatchesForEventAndTeam } from './services/robotevents';
 import { extractVideoId, getStreamStartTime } from './services/youtube';
 import { findWebcastCandidates } from './services/webcastDetection';
-import { getCachedWebcast, setCachedWebcast, getEventHistory } from './services/eventCache';
+import { getCachedWebcast, setCachedWebcast } from './services/eventCache';
 
 function App() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -27,7 +25,7 @@ function App() {
     const [team, setTeam] = useState(null);
     const [matches, setMatches] = useState([]);
 
-    // Single-stream support (Reverted)
+    // Single-stream support
     const [webcastUrl, setWebcastUrl] = useState('');
     const [videoId, setVideoId] = useState(null);
     const [streamStartTime, setStreamStartTime] = useState(null);
@@ -80,6 +78,11 @@ function App() {
     }, [videoId]);
 
     const handleEventSearch = async () => {
+        if (!eventUrl.trim()) {
+            setError('Please enter an event URL');
+            return;
+        }
+
         setEventLoading(true);
         setError('');
         setNoWebcastsFound(false);
@@ -97,9 +100,10 @@ function App() {
             const candidates = await findWebcastCandidates(foundEvent);
             if (candidates.length > 0) {
                 setWebcastCandidates(candidates);
-                // Auto-select first if only one
-                if (candidates.length === 1) {
-                    handleWebcastSelect(candidates[0].videoId, candidates[0].url, 'auto');
+                // Auto-select first if only one direct video
+                const directVideos = candidates.filter(c => c.type === 'direct-video');
+                if (directVideos.length === 1) {
+                    handleWebcastSelect(directVideos[0].videoId, directVideos[0].url, 'auto');
                 }
             } else {
                 setNoWebcastsFound(true);
@@ -123,12 +127,17 @@ function App() {
             setCachedWebcast(event.id, selectedVideoId, selectedUrl, method);
         }
         setNoWebcastsFound(false);
-        setWebcastCandidates([]); // Clear candidates after selection
+        setWebcastCandidates([]);
     };
 
     const handleTeamSearch = async () => {
         if (!event) {
             setError('Please find an event first');
+            return;
+        }
+
+        if (!teamNumber.trim()) {
+            setError('Please enter a team number');
             return;
         }
 
@@ -149,13 +158,9 @@ function App() {
                 const aStarted = a.started ? new Date(a.started).getTime() : null;
                 const bStarted = b.started ? new Date(b.started).getTime() : null;
 
-                // Both played: sort by time
                 if (aStarted && bStarted) return aStarted - bStarted;
-                // Only a played: a comes first
                 if (aStarted && !bStarted) return -1;
-                // Only b played: b comes first
                 if (!aStarted && bStarted) return 1;
-                // Neither played: keep original order
                 return 0;
             });
 
@@ -214,7 +219,7 @@ function App() {
         <div className="min-h-screen bg-black text-white font-sans selection:bg-[#4FCEEC] selection:text-black">
             {/* Header */}
             <header className="bg-gray-900 border-b border-gray-800 p-4 sticky top-0 z-50 backdrop-blur-md bg-opacity-80">
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
+                <div className="max-w-4xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="bg-[#4FCEEC] p-2 rounded-lg shadow-[0_0_15px_rgba(79,206,236,0.4)]">
                             <Zap className="w-6 h-6 text-black" />
@@ -223,66 +228,82 @@ function App() {
                             VEX Match Jumper
                         </h1>
                     </div>
-                    <button
-                        onClick={() => setIsSettingsOpen(true)}
-                        className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-400 hover:text-white"
-                    >
-                        <Settings className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setShowEventHistory(true)}
+                            className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-400 hover:text-white"
+                            title="Event History"
+                        >
+                            <History className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={() => setIsSettingsOpen(true)}
+                            className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-400 hover:text-white"
+                        >
+                            <Settings className="w-5 h-5" />
+                        </button>
+                    </div>
                 </div>
             </header>
 
             {/* Error Display */}
             {error && (
-                <div className="max-w-7xl mx-auto mt-4 px-4">
+                <div className="max-w-4xl mx-auto mt-4 px-4">
                     <div className="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-xl flex items-center gap-3 shadow-lg shadow-red-900/20">
                         <AlertCircle className="w-5 h-5 flex-shrink-0" />
                         <p className="font-medium">{error}</p>
-                        <button onClick={() => setError(null)} className="ml-auto hover:text-white">
+                        <button onClick={() => setError('')} className="ml-auto hover:text-white">
                             <X className="w-4 h-4" />
                         </button>
                     </div>
                 </div>
             )}
 
-            <main className="max-w-7xl mx-auto p-4 space-y-6">
-                {/* 1. Event Selection */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <EventInput
-                        onEventFound={handleEventSearch}
-                        setLoading={setEventLoading}
-                        setError={setError}
-                        event={event}
-                    />
-
-                    {/* Event History Button (Inline) */}
-                    {event && (
+            <main className="max-w-4xl mx-auto p-4 space-y-6">
+                {/* 1. Event Search */}
+                <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
+                    <h2 className="text-lg font-bold text-white">1. Find Event</h2>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={eventUrl}
+                            onChange={(e) => setEventUrl(e.target.value)}
+                            placeholder="Paste RobotEvents URL..."
+                            className="flex-1 bg-black border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
+                            onKeyDown={(e) => e.key === 'Enter' && handleEventSearch()}
+                        />
                         <button
-                            onClick={() => setShowEventHistory(true)}
-                            className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 border border-gray-700"
+                            onClick={handleEventSearch}
+                            disabled={eventLoading}
+                            className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-6 py-3 rounded-lg font-bold transition-colors flex items-center gap-2"
                         >
-                            <History className="w-4 h-4" />
-                            Event History
+                            {eventLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
                         </button>
+                    </div>
+                    {event && (
+                        <div className="p-3 bg-black border border-gray-700 rounded-lg">
+                            <p className="text-white font-semibold">{event.name}</p>
+                            <p className="text-xs text-gray-400">{event.location?.venue}, {event.location?.city}</p>
+                        </div>
                     )}
                 </div>
 
-                {/* Webcast Selection (Reverted to single) */}
+                {/* 2. Webcast Link */}
                 {event && (
                     <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
                         <h2 className="text-lg font-bold text-white flex items-center gap-2">
                             <Tv className="w-5 h-5 text-[#4FCEEC]" />
-                            Livestream
+                            2. Livestream URL
                         </h2>
 
                         {webcastCandidates.length > 0 ? (
                             <WebcastSelector
                                 candidates={webcastCandidates}
                                 onSelect={handleWebcastSelect}
+                                event={event}
                             />
                         ) : (
-                            <div className="space-y-2">
-                                <label className="block text-sm text-gray-400">YouTube URL</label>
+                            <>
                                 <input
                                     type="text"
                                     value={webcastUrl}
@@ -296,49 +317,74 @@ function App() {
                                         Check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.
                                     </p>
                                 )}
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* 3. YouTube Player */}
+                {event && (
+                    <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
+                        <h2 className="text-lg font-bold text-white">3. Stream</h2>
+                        <div className="bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16/9' }}>
+                            {videoId ? (
+                                <YouTube
+                                    videoId={videoId}
+                                    opts={{
+                                        height: '100%',
+                                        width: '100%',
+                                        playerVars: {
+                                            autoplay: 0,
+                                            modestbranding: 1,
+                                        },
+                                    }}
+                                    onReady={(event) => setPlayer(event.target)}
+                                    className="w-full h-full"
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-600">
+                                    <div className="text-center">
+                                        <Tv className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                        <p>Enter a stream URL above to watch</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* 4. Team Search */}
+                {event && (
+                    <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
+                        <h2 className="text-lg font-bold text-white">4. Find Team</h2>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={teamNumber}
+                                onChange={(e) => setTeamNumber(e.target.value)}
+                                placeholder="Team number (e.g., 11574A)"
+                                className="flex-1 bg-black border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
+                                onKeyDown={(e) => e.key === 'Enter' && handleTeamSearch()}
+                            />
+                            <button
+                                onClick={handleTeamSearch}
+                                disabled={teamLoading}
+                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-6 py-3 rounded-lg font-bold transition-colors flex items-center gap-2"
+                            >
+                                {teamLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
+                            </button>
+                        </div>
+                        {team && (
+                            <div className="p-3 bg-black border border-gray-700 rounded-lg">
+                                <p className="text-white font-semibold">{team.number} - {team.team_name}</p>
+                                <p className="text-xs text-gray-400">{team.organization}</p>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* 2. Team Selection */}
-                {event && (
-                    <TeamInput
-                        eventId={event.id}
-                        onMatchesFound={handleTeamSearch}
-                        setLoading={setTeamLoading}
-                        setError={setError}
-                    />
-                )}
-
-                {/* YouTube Player */}
-                <div className="bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16/9' }}>
-                    {videoId ? (
-                        <YouTube
-                            videoId={videoId}
-                            opts={{
-                                height: '100%',
-                                width: '100%',
-                                playerVars: {
-                                    autoplay: 0,
-                                    modestbranding: 1,
-                                },
-                            }}
-                            onReady={(event) => setPlayer(event.target)}
-                            className="w-full h-full"
-                        />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-600 bg-gray-900 border border-gray-800 rounded-xl">
-                            <div className="text-center">
-                                <Tv className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                <p>Enter a stream URL above to watch</p>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
                 {/* Matches List */}
-                {matches.length > 0 && event && (
+                {matches.length > 0 && (
                     <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl">
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-lg font-bold text-white">Matches</h2>
@@ -453,7 +499,6 @@ function App() {
                     onClose={() => setShowEventHistory(false)}
                     onSelectEvent={(sku) => {
                         setShowEventHistory(false);
-                        // Trigger event search with this SKU
                     }}
                 />
             </main>
