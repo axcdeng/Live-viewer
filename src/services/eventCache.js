@@ -84,6 +84,7 @@ export const saveEventToHistory = (event, streams) => {
         eventStart: event.start,
         eventEnd: event.end,
         eventSku: event.sku,
+        eventProgram: event.program,
         streams: streams.map(s => ({
             label: s.label,
             url: s.url,

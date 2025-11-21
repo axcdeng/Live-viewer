@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap } from 'lucide-react';
+import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import YouTube from 'react-youtube';
 import { format } from 'date-fns';
 import SettingsModal from './components/SettingsModal';
@@ -158,15 +158,34 @@ function App() {
         setWebcastCandidates([]);
     };
 
-    const handleLoadFromHistory = (historyEntry) => {
+    const handleLoadFromHistory = async (historyEntry) => {
         // Reconstruct event object
-        const reconstructedEvent = {
+        let reconstructedEvent = {
             id: historyEntry.eventId,
             name: historyEntry.eventName,
             start: historyEntry.eventStart,
             end: historyEntry.eventEnd,
-            sku: historyEntry.eventSku
+            sku: historyEntry.eventSku,
+            program: historyEntry.eventProgram
         };
+
+        // If program is missing (legacy history), fetch full event details
+        if (!reconstructedEvent.program && reconstructedEvent.sku) {
+            try {
+                const fullEvent = await getEventBySku(reconstructedEvent.sku);
+                reconstructedEvent = fullEvent;
+                // Update history with full details
+                saveEventToHistory(fullEvent, historyEntry.streams.map(s => ({
+                    label: s.label,
+                    url: s.url,
+                    videoId: s.videoId,
+                    dayIndex: s.dayIndex,
+                    streamStartTime: s.streamStartTime
+                })));
+            } catch (err) {
+                console.error('Failed to fetch full event details:', err);
+            }
+        }
 
         setEvent(reconstructedEvent);
         setEventUrl(`https://www.robotevents.com/${historyEntry.eventSku}.html`);
@@ -188,22 +207,31 @@ function App() {
         }
     };
 
-    const handleTeamSearch = async () => {
+    // Expanded matches state
+    const [expandedMatchId, setExpandedMatchId] = useState(null);
+
+    const handleTeamSearch = async (specificTeamNumber) => {
+        const searchNumber = specificTeamNumber || teamNumber;
+
         if (!event) {
             setError('Please find an event first');
             return;
         }
 
-        if (!teamNumber.trim()) {
+        if (!searchNumber.trim()) {
             setError('Please enter a team number');
             return;
         }
 
         setTeamLoading(true);
         setError('');
+        // Update the input field if searching via click
+        if (specificTeamNumber) {
+            setTeamNumber(specificTeamNumber);
+        }
 
         try {
-            const foundTeam = await getTeamByNumber(teamNumber);
+            const foundTeam = await getTeamByNumber(searchNumber);
             setTeam(foundTeam);
 
             let foundMatches = await getMatchesForEventAndTeam(event.id, foundTeam.id);
@@ -222,8 +250,17 @@ function App() {
                 return 0;
             });
 
+            console.warn('DEBUG: Match Data Loaded', {
+                firstMatch: foundMatches[0],
+                teamSearchingFor: foundTeam,
+                alliancesOfFirstMatch: foundMatches[0]?.alliances
+            });
+
             setMatches(foundMatches);
+            // Reset expanded match when searching new team
+            setExpandedMatchId(null);
         } catch (err) {
+            console.error('DEBUG: Error in handleTeamSearch', err);
             setError(err.message);
         } finally {
             setTeamLoading(false);
@@ -315,6 +352,35 @@ function App() {
 
     // Tab state
     const [activeTab, setActiveTab] = useState('search'); // 'search' or 'list'
+
+    // Helper to render score
+    const renderScore = (match, userAlliance, opponentAlliance) => {
+        if (!match.started) return null;
+
+        const isVIQC = event?.program?.code === 'VIQC' || event?.program?.code === 'VIQRC';
+
+        if (isVIQC) {
+            return <span className="font-bold text-[#4FCEEC]">{userAlliance.score}</span>;
+        }
+
+        // V5RC / VRC
+        const userScore = userAlliance.score;
+        const opponentScore = opponentAlliance.score;
+        const userWon = userScore > opponentScore;
+        const tie = userScore === opponentScore;
+
+        return (
+            <div className="flex gap-2 text-sm font-mono">
+                <span className={`font-bold ${userAlliance.color === 'red' ? 'text-red-400' : 'text-blue-400'} ${userWon ? 'underline decoration-2' : ''}`}>
+                    {userScore}
+                </span>
+                <span className="text-gray-600">-</span>
+                <span className={`font-bold ${opponentAlliance.color === 'red' ? 'text-red-400' : 'text-blue-400'} ${!userWon && !tie ? 'underline decoration-2' : ''}`}>
+                    {opponentScore}
+                </span>
+            </div>
+        );
+    };
 
     return (
         <div className="min-h-screen bg-black text-white font-sans selection:bg-[#4FCEEC] selection:text-black flex flex-col overflow-hidden">
@@ -418,8 +484,8 @@ function App() {
                                                 key={stream.id}
                                                 onClick={() => setActiveStreamId(stream.id)}
                                                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors backdrop-blur-md ${activeStreamId === stream.id
-                                                        ? 'bg-[#4FCEEC]/90 text-black'
-                                                        : 'bg-black/60 text-white hover:bg-black/80'
+                                                    ? 'bg-[#4FCEEC]/90 text-black'
+                                                    : 'bg-black/60 text-white hover:bg-black/80'
                                                     }`}
                                             >
                                                 {stream.label}
@@ -498,8 +564,8 @@ function App() {
                             <button
                                 onClick={() => setActiveTab('search')}
                                 className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'search'
-                                        ? 'bg-gray-800 text-white shadow-sm'
-                                        : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                                    ? 'bg-gray-800 text-white shadow-sm'
+                                    : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
                                     }`}
                             >
                                 Search by team
@@ -507,8 +573,8 @@ function App() {
                             <button
                                 onClick={() => setActiveTab('list')}
                                 className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'list'
-                                        ? 'bg-gray-800 text-white shadow-sm'
-                                        : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                                    ? 'bg-gray-800 text-white shadow-sm'
+                                    : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
                                     }`}
                             >
                                 Team List
@@ -532,7 +598,7 @@ function App() {
                                                 onKeyDown={(e) => e.key === 'Enter' && handleTeamSearch()}
                                             />
                                             <button
-                                                onClick={handleTeamSearch}
+                                                onClick={() => handleTeamSearch()}
                                                 disabled={teamLoading || !event}
                                                 className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2"
                                             >
@@ -581,8 +647,9 @@ function App() {
                                                     // Group matches by day
                                                     const matchesByDay = {};
                                                     matches.forEach(match => {
-                                                        if (!match.started) return; // Skip unplayed matches
-                                                        const dayIndex = getMatchDayIndex(match.started, event?.start);
+                                                        // Use started date or scheduled date or fallback to event start
+                                                        const dateToUse = match.started || match.scheduled || event?.start;
+                                                        const dayIndex = getMatchDayIndex(dateToUse, event?.start);
                                                         if (!matchesByDay[dayIndex]) {
                                                             matchesByDay[dayIndex] = [];
                                                         }
@@ -607,9 +674,16 @@ function App() {
 
                                                                 {/* Matches for this day */}
                                                                 <div className="space-y-2 mb-4">
-                                                                    {dayMatches.map((match) => {
+                                                                    {dayMatches.map((match, index) => {
                                                                         const hasStarted = !!match.started;
-                                                                        const alliance = match.alliances?.find(a => a.teams?.some(t => t.team?.id === team.id));
+                                                                        // Fix: Ensure ID comparison is robust, check both ID and Number, and fallback to Name
+                                                                        const alliance = match.alliances?.find(a => a.teams?.some(t =>
+                                                                            String(t.team?.id) === String(team?.id) ||
+                                                                            t.team?.number === team?.number ||
+                                                                            t.team?.name === team?.number // Fallback if name holds the number
+                                                                        ));
+
+                                                                        const opponentAlliance = match.alliances?.find(a => a !== alliance);
                                                                         const matchName = match.name?.replace(/teamwork/gi, 'Qual') || match.name;
 
                                                                         // Check if match is available
@@ -617,11 +691,27 @@ function App() {
                                                                         const isGrayedOut = !!grayOutReason;
                                                                         const matchStream = findStreamForMatch(match, streams, event?.start);
                                                                         const canJump = matchStream && matchStream.streamStartTime;
+                                                                        const isExpanded = expandedMatchId === match.id;
+
+                                                                        // W/L Indicator Logic
+                                                                        const isVIQC = event?.program?.code === 'VIQC' || event?.program?.code === 'VIQRC';
+                                                                        let resultIndicator = null;
+                                                                        if (hasStarted && alliance && opponentAlliance && !isVIQC) {
+                                                                            const userScore = alliance.score;
+                                                                            const opponentScore = opponentAlliance.score;
+                                                                            if (userScore > opponentScore) {
+                                                                                resultIndicator = <span className="text-[10px] font-bold text-green-400 ml-1">W</span>;
+                                                                            } else if (userScore < opponentScore) {
+                                                                                resultIndicator = <span className="text-[10px] font-bold text-red-400 ml-1">L</span>;
+                                                                            } else {
+                                                                                resultIndicator = <span className="text-[10px] font-bold text-gray-400 ml-1">T</span>;
+                                                                            }
+                                                                        }
 
                                                                         return (
                                                                             <div
                                                                                 key={match.id}
-                                                                                className={`p-3 rounded-lg border transition-all ${selectedMatchId === match.id
+                                                                                className={`rounded-lg border transition-all overflow-hidden ${selectedMatchId === match.id
                                                                                     ? 'bg-[#4FCEEC]/20 border-[#4FCEEC]'
                                                                                     : isGrayedOut
                                                                                         ? 'bg-black border-gray-800 opacity-50'
@@ -629,17 +719,24 @@ function App() {
                                                                                     }`}
                                                                                 title={isGrayedOut ? grayOutReason : ''}
                                                                             >
-                                                                                <div className="flex justify-between items-center gap-2">
-                                                                                    <div className="flex-1 min-w-0">
+                                                                                <div className="p-3 flex justify-between items-center gap-2">
+                                                                                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setExpandedMatchId(isExpanded ? null : match.id)}>
                                                                                         <div className="flex items-center gap-2">
                                                                                             <h4 className="font-bold text-white text-sm truncate">{matchName}</h4>
                                                                                             {alliance && (
-                                                                                                <div className={`w-2 h-2 rounded-full ${alliance.color === 'red' ? 'bg-red-500' : 'bg-blue-500'}`} title={`${alliance.color} alliance`} />
+                                                                                                <div className="flex items-center">
+                                                                                                    <div className={`w-2 h-2 rounded-full ${alliance.color === 'red' ? 'bg-red-500' : 'bg-blue-500'}`} title={`${alliance.color} alliance`} />
+                                                                                                    {resultIndicator}
+                                                                                                </div>
                                                                                             )}
+                                                                                            {isExpanded ? <ChevronUp className="w-3 h-3 text-gray-500" /> : <ChevronDown className="w-3 h-3 text-gray-500" />}
                                                                                         </div>
-                                                                                        <p className="text-xs text-gray-400">
-                                                                                            {hasStarted ? format(new Date(match.started), 'h:mm a') : 'TBD'}
-                                                                                        </p>
+                                                                                        <div className="flex items-center gap-2 mt-1">
+                                                                                            <p className="text-xs text-gray-400">
+                                                                                                {hasStarted ? format(new Date(match.started), 'h:mm a') : (match.scheduled ? format(new Date(match.scheduled), 'h:mm a') : 'TBD')}
+                                                                                            </p>
+                                                                                            {hasStarted && alliance && opponentAlliance && renderScore(match, alliance, opponentAlliance)}
+                                                                                        </div>
                                                                                     </div>
 
                                                                                     {canJump ? (
@@ -665,6 +762,57 @@ function App() {
                                                                                         </button>
                                                                                     )}
                                                                                 </div>
+
+                                                                                {/* Expanded Team Details */}
+                                                                                {isExpanded && (
+                                                                                    <div className="bg-gray-900/50 border-t border-gray-800 p-3 text-xs space-y-2">
+                                                                                        {/* Alliance Teams (or All Teams for VIQC) */}
+                                                                                        {(isVIQC ? (match.alliances || []) : (alliance ? [alliance] : [])).length > 0 && (
+                                                                                            <div>
+                                                                                                <p className="text-gray-500 font-semibold mb-1">{isVIQC ? 'Teams' : 'Alliance'}</p>
+                                                                                                <div className="flex flex-wrap gap-2">
+                                                                                                    {(isVIQC ? match.alliances.flatMap(a => a.teams) : alliance?.teams)?.map(t => {
+                                                                                                        if (!t?.team) return null;
+                                                                                                        const teamLabel = t.team.number || t.team.name;
+                                                                                                        return (
+                                                                                                            <button
+                                                                                                                key={t.team.id || Math.random()}
+                                                                                                                onClick={() => handleTeamSearch(teamLabel)}
+                                                                                                                className={`px-2 py-1 rounded border ${String(t.team.id) === String(team?.id)
+                                                                                                                    ? 'bg-[#4FCEEC]/20 border-[#4FCEEC] text-[#4FCEEC]'
+                                                                                                                    : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}
+                                                                                                            >
+                                                                                                                {teamLabel}
+                                                                                                            </button>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        )}
+
+                                                                                        {/* Opponent Teams (only if not VIQC) */}
+                                                                                        {!isVIQC && opponentAlliance && (
+                                                                                            <div>
+                                                                                                <p className="text-gray-500 font-semibold mb-1">Opponents</p>
+                                                                                                <div className="flex flex-wrap gap-2">
+                                                                                                    {opponentAlliance.teams?.map(t => {
+                                                                                                        if (!t?.team) return null;
+                                                                                                        const teamLabel = t.team.number || t.team.name;
+                                                                                                        return (
+                                                                                                            <button
+                                                                                                                key={t.team.id || Math.random()}
+                                                                                                                onClick={() => handleTeamSearch(teamLabel)}
+                                                                                                                className="px-2 py-1 rounded border bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
+                                                                                                            >
+                                                                                                                {teamLabel}
+                                                                                                            </button>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                )}
                                                                             </div>
                                                                         );
                                                                     })}
