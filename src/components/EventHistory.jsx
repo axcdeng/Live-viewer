@@ -3,6 +3,8 @@ import { X, Clock, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { getAllHistory, deleteHistoryEntry } from '../services/eventCache';
 import { getMatchDayIndex } from '../utils/streamMatching';
+import { GlassCard, GlassCardHeader, GlassCardTitle, GlassCardContent, GlassCardFooter } from "@/components/ui/glass-card";
+import { Button } from "@/components/ui/button";
 
 const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
     if (!isOpen) return null;
@@ -56,19 +58,19 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-gray-900 border-2 border-[#4FCEEC] rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl shadow-[#4FCEEC]/20">
-                <div className="p-6 border-b border-gray-800 flex justify-between items-center">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <GlassCard className="w-full max-w-4xl max-h-[85vh] flex flex-col border-[#4FCEEC]/50 shadow-[0_0_30px_rgba(79,206,236,0.2)]">
+                <GlassCardHeader className="flex flex-row items-center justify-between border-b border-white/10 pb-4">
                     <div>
-                        <h2 className="text-2xl font-bold text-[#4FCEEC]">Event History</h2>
+                        <GlassCardTitle className="text-2xl text-[#4FCEEC]">Event History</GlassCardTitle>
                         <p className="text-sm text-gray-400 mt-1">Quick access to previously loaded events</p>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                    <Button variant="ghost" size="icon" onClick={onClose} className="text-gray-400 hover:text-white">
                         <X className="w-6 h-6" />
-                    </button>
-                </div>
+                    </Button>
+                </GlassCardHeader>
 
-                <div className="flex-1 overflow-y-auto p-6">
+                <GlassCardContent className="flex-1 overflow-y-auto p-6">
                     {history.length === 0 ? (
                         <div className="text-center py-12">
                             <Clock className="w-16 h-16 text-gray-700 mx-auto mb-4" />
@@ -93,7 +95,7 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                                 return (
                                     <div
                                         key={entry.eventId}
-                                        className="bg-black border border-gray-800 hover:border-[#4FCEEC]/50 rounded-xl p-4 transition-all cursor-pointer group"
+                                        className="bg-white/5 border border-white/10 hover:border-[#4FCEEC]/50 hover:bg-white/10 rounded-xl p-4 transition-all cursor-pointer group"
                                         onClick={() => handleSelectEvent(entry)}
                                     >
                                         <div className="flex justify-between items-start mb-3">
@@ -106,13 +108,15 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                                                     {format(new Date(entry.eventStart), 'MMM d')} - {format(new Date(entry.eventEnd), 'MMM d, yyyy')}
                                                 </p>
                                             </div>
-                                            <button
+                                            <Button
                                                 onClick={(e) => handleDelete(entry.eventId, e)}
-                                                className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="text-gray-600 hover:text-red-400 hover:bg-red-500/10"
                                                 title="Remove from history"
                                             >
                                                 <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            </Button>
                                         </div>
 
                                         {/* Streams */}
@@ -124,7 +128,7 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                                                     const warning = streamWarnings.find(w => w.idx === idx);
 
                                                     return (
-                                                        <div key={idx} className="flex items-start gap-2 bg-gray-900 rounded-lg p-2">
+                                                        <div key={idx} className="flex items-start gap-2 bg-black/40 rounded-lg p-2">
                                                             {warning && (
                                                                 <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
                                                             )}
@@ -148,7 +152,7 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                                             </div>
                                         )}
 
-                                        <div className="mt-3 pt-3 border-t border-gray-800 flex justify-between items-center">
+                                        <div className="mt-3 pt-3 border-t border-white/10 flex justify-between items-center">
                                             <span className="text-xs text-gray-500">
                                                 Last accessed {format(new Date(entry.lastAccessed), 'MMM d, h:mm a')}
                                             </span>
@@ -161,17 +165,17 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                             })}
                         </div>
                     )}
-                </div>
+                </GlassCardContent>
 
-                <div className="p-4 border-t border-gray-800 bg-gray-900/50">
-                    <button
+                <GlassCardFooter className="p-4 border-t border-white/10 bg-black/20">
+                    <Button
                         onClick={onClose}
-                        className="w-full bg-gray-800 hover:bg-gray-700 text-white font-semibold py-2 rounded-lg transition-colors"
+                        className="w-full bg-white/10 hover:bg-white/20 text-white font-semibold"
                     >
                         Close
-                    </button>
-                </div>
-            </div>
+                    </Button>
+                </GlassCardFooter>
+            </GlassCard>
         </div>
     );
 };

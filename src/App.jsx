@@ -11,6 +11,9 @@ import { extractVideoId, getStreamStartTime } from './services/youtube';
 import { findWebcastCandidates } from './services/webcastDetection';
 import { getCachedWebcast, setCachedWebcast, saveEventToHistory } from './services/eventCache';
 import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutReason } from './utils/streamMatching';
+import { GlassCard, GlassCardHeader, GlassCardTitle, GlassCardContent } from "@/components/ui/glass-card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 function App() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -321,32 +324,36 @@ function App() {
     };
 
     return (
-        <div className="min-h-screen bg-black text-white font-sans selection:bg-[#4FCEEC] selection:text-black">
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white font-sans selection:bg-[#4FCEEC] selection:text-black">
             {/* Header */}
-            <header className="bg-gray-900 border-b border-gray-800 p-4 sticky top-0 z-50 backdrop-blur-md bg-opacity-80">
+            <header className="border-b border-white/10 p-4 sticky top-0 z-50 backdrop-blur-xl bg-black/20">
                 <div className="max-w-4xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="bg-[#4FCEEC] p-2 rounded-lg shadow-[0_0_15px_rgba(79,206,236,0.4)]">
-                            <Zap className="w-6 h-6 text-black" />
+                        <div className="bg-[#4FCEEC]/20 p-2 rounded-lg shadow-[0_0_15px_rgba(79,206,236,0.2)] backdrop-blur-sm border border-[#4FCEEC]/30">
+                            <Zap className="w-6 h-6 text-[#4FCEEC]" />
                         </div>
-                        <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+                        <h1 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
                             VEX Match Jumper
                         </h1>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setShowEventHistory(true)}
-                            className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-400 hover:text-white"
+                            className="rounded-full text-gray-400 hover:text-white hover:bg-white/10"
                             title="Event History"
                         >
                             <History className="w-5 h-5" />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setIsSettingsOpen(true)}
-                            className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-400 hover:text-white"
+                            className="rounded-full text-gray-400 hover:text-white hover:bg-white/10"
                         >
                             <Settings className="w-5 h-5" />
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </header>
@@ -354,7 +361,7 @@ function App() {
             {/* Error Display */}
             {error && (
                 <div className="max-w-4xl mx-auto mt-4 px-4">
-                    <div className="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-xl flex items-center gap-3 shadow-lg shadow-red-900/20">
+                    <div className="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-xl flex items-center gap-3 shadow-lg shadow-red-900/20 backdrop-blur-sm">
                         <AlertCircle className="w-5 h-5 flex-shrink-0" />
                         <p className="font-medium">{error}</p>
                         <button onClick={() => setError('')} className="ml-auto hover:text-white">
@@ -366,80 +373,86 @@ function App() {
 
             <main className="max-w-4xl mx-auto p-4 space-y-6">
                 {/* 1. Event Search */}
-                <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
-                    <h2 className="text-lg font-bold text-white">1. Find Event</h2>
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={eventUrl}
-                            onChange={(e) => setEventUrl(e.target.value)}
-                            placeholder="Paste RobotEvents URL..."
-                            className="flex-1 bg-black border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
-                            onKeyDown={(e) => e.key === 'Enter' && handleEventSearch()}
-                        />
-                        <button
-                            onClick={handleEventSearch}
-                            disabled={eventLoading}
-                            className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-6 py-3 rounded-lg font-bold transition-colors flex items-center gap-2"
-                        >
-                            {eventLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
-                        </button>
-                    </div>
-                    {event && (
-                        <div className="p-3 bg-black border border-gray-700 rounded-lg">
-                            <p className="text-white font-semibold">{event.name}</p>
-                            <p className="text-xs text-gray-400">{event.location?.venue}, {event.location?.city}</p>
+                <GlassCard>
+                    <GlassCardHeader>
+                        <GlassCardTitle>1. Find Event</GlassCardTitle>
+                    </GlassCardHeader>
+                    <GlassCardContent className="space-y-4">
+                        <div className="flex gap-2">
+                            <Input
+                                type="text"
+                                value={eventUrl}
+                                onChange={(e) => setEventUrl(e.target.value)}
+                                placeholder="Paste RobotEvents URL..."
+                                className="flex-1 bg-black/40 border-white/10 focus:border-[#4FCEEC] focus:ring-[#4FCEEC]"
+                                onKeyDown={(e) => e.key === 'Enter' && handleEventSearch()}
+                            />
+                            <Button
+                                onClick={handleEventSearch}
+                                disabled={eventLoading}
+                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] text-black font-bold"
+                            >
+                                {eventLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
+                            </Button>
                         </div>
-                    )}
-                </div>
+                        {event && (
+                            <div className="p-3 bg-white/5 border border-white/10 rounded-lg backdrop-blur-sm">
+                                <p className="text-white font-semibold">{event.name}</p>
+                                <p className="text-xs text-gray-400">{event.location?.venue}, {event.location?.city}</p>
+                            </div>
+                        )}
+                    </GlassCardContent>
+                </GlassCard>
 
                 {/* 2. Livestream URLs */}
                 {event && (
-                    <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
-                        {webcastCandidates.length > 0 ? (
-                            <>
-                                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                    <Tv className="w-5 h-5 text-[#4FCEEC]" />
-                                    2. Livestream URL (Auto-detected)
-                                </h2>
+                    <GlassCard>
+                        <GlassCardHeader>
+                            <GlassCardTitle className="flex items-center gap-2">
+                                <Tv className="w-5 h-5 text-[#4FCEEC]" />
+                                2. Livestream URL (Auto-detected)
+                            </GlassCardTitle>
+                        </GlassCardHeader>
+                        <GlassCardContent className="space-y-4">
+                            {webcastCandidates.length > 0 ? (
                                 <WebcastSelector
                                     candidates={webcastCandidates}
                                     onSelect={handleWebcastSelect}
                                     event={event}
                                 />
-                            </>
-                        ) : (
-                            <StreamManager
-                                event={event}
-                                streams={streams}
-                                onStreamsChange={setStreams}
-                                onWebcastSelect={handleWebcastSelect}
-                            />
-                        )}
-                        {noWebcastsFound && (
-                            <p className="text-yellow-500 text-xs">
-                                No webcasts found automatically. Please paste the URL manually.
-                                Check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.
-                            </p>
-                        )}
-                    </div>
+                            ) : (
+                                <StreamManager
+                                    event={event}
+                                    streams={streams}
+                                    onStreamsChange={setStreams}
+                                    onWebcastSelect={handleWebcastSelect}
+                                />
+                            )}
+                            {noWebcastsFound && (
+                                <p className="text-yellow-500 text-xs">
+                                    No webcasts found automatically. Please paste the URL manually.
+                                    Check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.
+                                </p>
+                            )}
+                        </GlassCardContent>
+                    </GlassCard>
                 )}
 
 
                 {/* 3. YouTube Player */}
                 {event && streams.length > 0 && (
-                    <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h2 className="text-lg font-bold text-white">3. Stream</h2>
+                    <GlassCard>
+                        <GlassCardHeader className="flex flex-row items-center justify-between">
+                            <GlassCardTitle>3. Stream</GlassCardTitle>
                             {streams.length > 1 && streams.filter(s => s.videoId).length > 1 && (
                                 <div className="flex gap-2">
                                     {streams.filter(s => s.videoId).map((stream) => (
                                         <button
                                             key={stream.id}
                                             onClick={() => setActiveStreamId(stream.id)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${activeStreamId === stream.id
-                                                ? 'bg-[#4FCEEC] text-black'
-                                                : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${activeStreamId === stream.id
+                                                ? 'bg-[#4FCEEC] text-black shadow-[0_0_10px_rgba(79,206,236,0.4)]'
+                                                : 'bg-white/10 text-gray-400 hover:bg-white/20 hover:text-white'
                                                 }`}
                                         >
                                             {stream.label}
@@ -447,79 +460,85 @@ function App() {
                                     ))}
                                 </div>
                             )}
-                        </div>
-                        <div className="bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16/9' }}>
-                            {streams.map((stream) => (
-                                <div
-                                    key={stream.id}
-                                    style={{ display: stream.id === activeStreamId ? 'block' : 'none' }}
-                                    className="w-full h-full"
-                                >
-                                    {stream.videoId ? (
-                                        <YouTube
-                                            videoId={stream.videoId}
-                                            opts={{
-                                                height: '100%',
-                                                width: '100%',
-                                                playerVars: {
-                                                    autoplay: 0,
-                                                    modestbranding: 1,
-                                                },
-                                            }}
-                                            onReady={(event) => {
-                                                setPlayers(prev => ({ ...prev, [stream.id]: event.target }));
-                                            }}
-                                            className="w-full h-full"
-                                        />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-slate-600">
-                                            <div className="text-center">
-                                                <Tv className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                                <p>Enter a stream URL for {stream.label} above</p>
+                        </GlassCardHeader>
+                        <GlassCardContent>
+                            <div className="bg-black rounded-xl overflow-hidden border border-white/10 shadow-2xl" style={{ aspectRatio: '16/9' }}>
+                                {streams.map((stream) => (
+                                    <div
+                                        key={stream.id}
+                                        style={{ display: stream.id === activeStreamId ? 'block' : 'none' }}
+                                        className="w-full h-full"
+                                    >
+                                        {stream.videoId ? (
+                                            <YouTube
+                                                videoId={stream.videoId}
+                                                opts={{
+                                                    height: '100%',
+                                                    width: '100%',
+                                                    playerVars: {
+                                                        autoplay: 0,
+                                                        modestbranding: 1,
+                                                    },
+                                                }}
+                                                onReady={(event) => {
+                                                    setPlayers(prev => ({ ...prev, [stream.id]: event.target }));
+                                                }}
+                                                className="w-full h-full"
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-slate-600 bg-black/50 backdrop-blur-sm">
+                                                <div className="text-center">
+                                                    <Tv className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                                    <p>Enter a stream URL for {stream.label} above</p>
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </GlassCardContent>
+                    </GlassCard>
                 )}
 
                 {/* 4. Team Search */}
                 {event && (
-                    <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-4">
-                        <h2 className="text-lg font-bold text-white">4. Find Team</h2>
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                value={teamNumber}
-                                onChange={(e) => setTeamNumber(e.target.value)}
-                                placeholder="Team number (e.g., 11574A)"
-                                className="flex-1 bg-black border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
-                                onKeyDown={(e) => e.key === 'Enter' && handleTeamSearch()}
-                            />
-                            <button
-                                onClick={handleTeamSearch}
-                                disabled={teamLoading}
-                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-6 py-3 rounded-lg font-bold transition-colors flex items-center gap-2"
-                            >
-                                {teamLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
-                            </button>
-                        </div>
-                        {team && (
-                            <div className="p-3 bg-black border border-gray-700 rounded-lg">
-                                <p className="text-white font-semibold">{team.number} - {team.team_name}</p>
-                                <p className="text-xs text-gray-400">{team.organization}</p>
+                    <GlassCard>
+                        <GlassCardHeader>
+                            <GlassCardTitle>4. Find Team</GlassCardTitle>
+                        </GlassCardHeader>
+                        <GlassCardContent className="space-y-4">
+                            <div className="flex gap-2">
+                                <Input
+                                    type="text"
+                                    value={teamNumber}
+                                    onChange={(e) => setTeamNumber(e.target.value)}
+                                    placeholder="Team number (e.g., 11574A)"
+                                    className="flex-1 bg-black/40 border-white/10 focus:border-[#4FCEEC] focus:ring-[#4FCEEC]"
+                                    onKeyDown={(e) => e.key === 'Enter' && handleTeamSearch()}
+                                />
+                                <Button
+                                    onClick={handleTeamSearch}
+                                    disabled={teamLoading}
+                                    className="bg-[#4FCEEC] hover:bg-[#3db8d6] text-black font-bold"
+                                >
+                                    {teamLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
+                                </Button>
                             </div>
-                        )}
-                    </div>
+                            {team && (
+                                <div className="p-3 bg-white/5 border border-white/10 rounded-lg backdrop-blur-sm">
+                                    <p className="text-white font-semibold">{team.number} - {team.team_name}</p>
+                                    <p className="text-xs text-gray-400">{team.organization}</p>
+                                </div>
+                            )}
+                        </GlassCardContent>
+                    </GlassCard>
                 )}
 
                 {/* Matches List */}
                 {matches.length > 0 && (
-                    <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-bold text-white">Matches</h2>
+                    <GlassCard>
+                        <GlassCardHeader className="flex flex-row items-center justify-between">
+                            <GlassCardTitle>Matches</GlassCardTitle>
                             <div className="flex items-center gap-3">
                                 <div className="flex items-center gap-2 text-xs">
                                     {(() => {
@@ -542,152 +561,161 @@ function App() {
                                 </div>
                                 {getActiveStream()?.streamStartTime && (
                                     <div className="flex gap-1">
-                                        <button onClick={() => adjustSync(5)} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-[10px] text-white">+5s</button>
-                                        <button onClick={() => adjustSync(1)} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-[10px] text-white">+1s</button>
-                                        <button onClick={() => adjustSync(-1)} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-[10px] text-white">-1s</button>
-                                        <button onClick={() => adjustSync(-5)} className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-[10px] text-white">-5s</button>
+                                        <button onClick={() => adjustSync(5)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] text-white transition-colors">+5s</button>
+                                        <button onClick={() => adjustSync(1)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] text-white transition-colors">+1s</button>
+                                        <button onClick={() => adjustSync(-1)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] text-white transition-colors">-1s</button>
+                                        <button onClick={() => adjustSync(-5)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] text-white transition-colors">-5s</button>
                                     </div>
                                 )}
                             </div>
-                        </div>
+                        </GlassCardHeader>
+                        <GlassCardContent>
+                            <div className="space-y-4 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                                {(() => {
+                                    // Group matches by day
+                                    const matchesByDay = {};
+                                    matches.forEach(match => {
+                                        if (!match.started) return; // Skip unplayed matches
+                                        const dayIndex = getMatchDayIndex(match.started, event?.start);
+                                        if (!matchesByDay[dayIndex]) {
+                                            matchesByDay[dayIndex] = [];
+                                        }
+                                        matchesByDay[dayIndex].push(match);
+                                    });
 
-                        <div className="space-y-4 max-h-96 overflow-y-auto">
-                            {(() => {
-                                // Group matches by day
-                                const matchesByDay = {};
-                                matches.forEach(match => {
-                                    if (!match.started) return; // Skip unplayed matches
-                                    const dayIndex = getMatchDayIndex(match.started, event?.start);
-                                    if (!matchesByDay[dayIndex]) {
-                                        matchesByDay[dayIndex] = [];
-                                    }
-                                    matchesByDay[dayIndex].push(match);
-                                });
+                                    return Object.keys(matchesByDay).sort().map((dayIndex) => {
+                                        const dayMatches = matchesByDay[dayIndex];
+                                        const dayStream = streams.find(s => s.dayIndex === parseInt(dayIndex));
+                                        const dayLabel = dayStream?.label || `Day ${parseInt(dayIndex) + 1}`;
 
-                                return Object.keys(matchesByDay).sort().map((dayIndex) => {
-                                    const dayMatches = matchesByDay[dayIndex];
-                                    const dayStream = streams.find(s => s.dayIndex === parseInt(dayIndex));
-                                    const dayLabel = dayStream?.label || `Day ${parseInt(dayIndex) + 1}`;
+                                        return (
+                                            <div key={dayIndex}>
+                                                {/* Day Header */}
+                                                <div className="flex items-center gap-2 mb-2 sticky top-0 bg-slate-900/90 backdrop-blur-md py-2 z-10 rounded-lg px-2">
+                                                    <div className="flex-1 h-px bg-white/10"></div>
+                                                    <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">
+                                                        {dayLabel}
+                                                    </span>
+                                                    <div className="flex-1 h-px bg-white/10"></div>
+                                                </div>
 
-                                    return (
-                                        <div key={dayIndex}>
-                                            {/* Day Header */}
-                                            <div className="flex items-center gap-2 mb-2 sticky top-0 bg-gray-900 py-2 z-10">
-                                                <div className="flex-1 h-px bg-gray-700"></div>
-                                                <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">
-                                                    {dayLabel}
-                                                </span>
-                                                <div className="flex-1 h-px bg-gray-700"></div>
-                                            </div>
+                                                {/* Matches for this day */}
+                                                <div className="space-y-2 mb-4">
+                                                    {dayMatches.map((match) => {
+                                                        const hasStarted = !!match.started;
+                                                        const alliance = match.alliances?.find(a => a.teams?.some(t => t.team?.id === team.id));
+                                                        const matchName = match.name?.replace(/teamwork/gi, 'Qualification') || match.name;
 
-                                            {/* Matches for this day */}
-                                            <div className="space-y-2 mb-4">
-                                                {dayMatches.map((match) => {
-                                                    const hasStarted = !!match.started;
-                                                    const alliance = match.alliances?.find(a => a.teams?.some(t => t.team?.id === team.id));
-                                                    const matchName = match.name?.replace(/teamwork/gi, 'Qualification') || match.name;
-
-                                                    // Check if match is available
-                                                    const grayOutReason = getGrayOutReason(match, streams, event?.start);
-                                                    const isGrayedOut = !!grayOutReason;
-                                                    const matchStream = findStreamForMatch(match, streams, event?.start);
-                                                    const canJump = matchStream && matchStream.streamStartTime;
+                                                        // Check if match is available
+                                                        const grayOutReason = getGrayOutReason(match, streams, event?.start);
+                                                        const isGrayedOut = !!grayOutReason;
+                                                        const matchStream = findStreamForMatch(match, streams, event?.start);
+                                                        const canJump = matchStream && matchStream.streamStartTime;
 
 
-                                                    return (
-                                                        <div
-                                                            key={match.id}
-                                                            className={`p-4 rounded-lg border transition-all ${selectedMatchId === match.id
-                                                                ? 'bg-[#4FCEEC]/20 border-[#4FCEEC]'
-                                                                : isGrayedOut
-                                                                    ? 'bg-black border-gray-800 opacity-50'
-                                                                    : 'bg-black border-gray-800 hover:border-gray-700'
-                                                                }`}
-                                                            title={isGrayedOut ? grayOutReason : ''}
-                                                        >
-                                                            <div className="flex justify-between items-center">
-                                                                <div className="flex-1">
-                                                                    <h4 className="font-bold text-white">{matchName}</h4>
-                                                                    <p className="text-xs text-gray-400">
-                                                                        {hasStarted ? format(new Date(match.started), 'h:mm a') : 'Not Yet Played'}
-                                                                    </p>
-                                                                </div>
-                                                                {alliance && (
-                                                                    <div className={`px-3 py-1 rounded text-xs font-bold uppercase mr-3 ${alliance.color === 'red' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
-                                                                        }`}>
-                                                                        {alliance.color}
+                                                        return (
+                                                            <div
+                                                                key={match.id}
+                                                                className={`p-4 rounded-lg border transition-all ${selectedMatchId === match.id
+                                                                    ? 'bg-[#4FCEEC]/20 border-[#4FCEEC] shadow-[0_0_15px_rgba(79,206,236,0.1)]'
+                                                                    : isGrayedOut
+                                                                        ? 'bg-black/20 border-white/5 opacity-50'
+                                                                        : 'bg-black/40 border-white/10 hover:border-white/20 hover:bg-white/5'
+                                                                    }`}
+                                                                title={isGrayedOut ? grayOutReason : ''}
+                                                            >
+                                                                <div className="flex justify-between items-center">
+                                                                    <div className="flex-1">
+                                                                        <h4 className="font-bold text-white">{matchName}</h4>
+                                                                        <p className="text-xs text-gray-400">
+                                                                            {hasStarted ? format(new Date(match.started), 'h:mm a') : 'Not Yet Played'}
+                                                                        </p>
                                                                     </div>
-                                                                )}
-                                                                {canJump ? (
-                                                                    <button
-                                                                        onClick={() => jumpToMatch(match)}
-                                                                        disabled={!hasStarted || isGrayedOut}
-                                                                        title={
-                                                                            isGrayedOut
-                                                                                ? grayOutReason
-                                                                                : !hasStarted
-                                                                                    ? "Match hasn't been played yet"
-                                                                                    : ""
-                                                                        }
-                                                                        className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 disabled:cursor-not-allowed text-black px-4 py-2 rounded-lg flex items-center gap-2 font-bold text-sm transition-colors"
-                                                                    >
-                                                                        <Play className="w-4 h-4" /> JUMP
-                                                                    </button>
-                                                                ) : (
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setSelectedMatchId(match.id);
-                                                                            setSyncMode(true);
-                                                                        }}
-                                                                        disabled={!hasStarted || isGrayedOut}
-                                                                        title={
-                                                                            isGrayedOut
-                                                                                ? grayOutReason
-                                                                                : !hasStarted
-                                                                                    ? "Match hasn't been played yet"
-                                                                                    : "Sync to this match"
-                                                                        }
-                                                                        className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg flex items-center gap-2 font-semibold text-sm transition-colors"
-                                                                    >
-                                                                        <RefreshCw className="w-4 h-4" /> SYNC
-                                                                    </button>
-                                                                )}
+                                                                    {alliance && (
+                                                                        <div className={`px-3 py-1 rounded text-xs font-bold uppercase mr-3 ${alliance.color === 'red' ? 'bg-red-500/20 text-red-400 border border-red-500/20' : 'bg-blue-500/20 text-blue-400 border border-blue-500/20'
+                                                                            }`}>
+                                                                            {alliance.color}
+                                                                        </div>
+                                                                    )}
+                                                                    {canJump ? (
+                                                                        <Button
+                                                                            onClick={() => jumpToMatch(match)}
+                                                                            disabled={!hasStarted || isGrayedOut}
+                                                                            title={
+                                                                                isGrayedOut
+                                                                                    ? grayOutReason
+                                                                                    : !hasStarted
+                                                                                        ? "Match hasn't been played yet"
+                                                                                        : ""
+                                                                            }
+                                                                            className="bg-[#4FCEEC] hover:bg-[#3db8d6] text-black font-bold"
+                                                                            size="sm"
+                                                                        >
+                                                                            <Play className="w-4 h-4 mr-2" /> JUMP
+                                                                        </Button>
+                                                                    ) : (
+                                                                        <Button
+                                                                            onClick={() => {
+                                                                                setSelectedMatchId(match.id);
+                                                                                setSyncMode(true);
+                                                                            }}
+                                                                            disabled={!hasStarted || isGrayedOut}
+                                                                            title={
+                                                                                isGrayedOut
+                                                                                    ? grayOutReason
+                                                                                    : !hasStarted
+                                                                                        ? "Match hasn't been played yet"
+                                                                                        : "Sync to this match"
+                                                                            }
+                                                                            variant="secondary"
+                                                                            size="sm"
+                                                                            className="bg-white/10 hover:bg-white/20 text-white border border-white/10"
+                                                                        >
+                                                                            <RefreshCw className="w-4 h-4 mr-2" /> SYNC
+                                                                        </Button>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    );
-                                                })}
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
-                                        </div>
-                                    );
-                                });
-                            })()}
-                        </div>
-                    </div>
+                                        );
+                                    });
+                                })()}
+                            </div>
+                        </GlassCardContent>
+                    </GlassCard>
                 )}
 
                 {/* Sync Modal */}
                 {syncMode && selectedMatchId && (
-                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-8">
-                        <div className="bg-gray-900 border-2 border-[#4FCEEC] p-8 rounded-2xl max-w-md text-center shadow-2xl shadow-[#4FCEEC]/20">
-                            <h3 className="text-2xl font-bold text-[#4FCEEC] mb-4">Manual Sync</h3>
-                            <p className="text-gray-300 mb-6">
-                                Find the exact moment <strong className="text-white">{matches.find(m => m.id === selectedMatchId)?.name}</strong> starts in the video, then click SYNC NOW.
-                            </p>
-                            <div className="flex gap-3 justify-center">
-                                <button
-                                    onClick={() => handleManualSync(matches.find(m => m.id === selectedMatchId))}
-                                    className="bg-[#4FCEEC] hover:bg-[#3db8d6] text-black px-8 py-3 rounded-lg font-bold transition-colors"
-                                >
-                                    SYNC NOW
-                                </button>
-                                <button
-                                    onClick={() => setSyncMode(false)}
-                                    className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-8">
+                        <GlassCard className="max-w-md w-full border-[#4FCEEC]/50 shadow-[0_0_30px_rgba(79,206,236,0.2)]">
+                            <GlassCardHeader>
+                                <GlassCardTitle className="text-2xl text-[#4FCEEC] text-center">Manual Sync</GlassCardTitle>
+                            </GlassCardHeader>
+                            <GlassCardContent className="text-center space-y-6">
+                                <p className="text-gray-300">
+                                    Find the exact moment <strong className="text-white">{matches.find(m => m.id === selectedMatchId)?.name}</strong> starts in the video, then click SYNC NOW.
+                                </p>
+                                <div className="flex gap-3 justify-center">
+                                    <Button
+                                        onClick={() => handleManualSync(matches.find(m => m.id === selectedMatchId))}
+                                        className="bg-[#4FCEEC] hover:bg-[#3db8d6] text-black font-bold px-8"
+                                    >
+                                        SYNC NOW
+                                    </Button>
+                                    <Button
+                                        onClick={() => setSyncMode(false)}
+                                        variant="ghost"
+                                        className="hover:bg-white/10 text-white"
+                                    >
+                                        Cancel
+                                    </Button>
+                                </div>
+                            </GlassCardContent>
+                        </GlassCard>
                     </div>
                 )}
 

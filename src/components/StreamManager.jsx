@@ -3,6 +3,9 @@ import { Tv, Plus, X, Loader, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
 import { getMatchDayIndex } from '../utils/streamMatching';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /**
  * StreamManager component - Manages multiple livestream inputs
@@ -153,19 +156,21 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
     };
 
     return (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+        <div className="bg-transparent rounded-xl">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-white font-bold flex items-center gap-2">
                     <Tv className="w-5 h-5 text-[#4FCEEC]" />
                     Livestream URLs
                 </h3>
-                <button
+                <Button
                     onClick={addStream}
-                    className="text-xs px-3 py-1.5 bg-[#4FCEEC]/20 hover:bg-[#4FCEEC]/30 text-[#4FCEEC] rounded-lg transition-colors flex items-center gap-1"
+                    variant="outline"
+                    size="sm"
+                    className="text-[#4FCEEC] border-[#4FCEEC]/30 hover:bg-[#4FCEEC]/10"
                 >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-3.5 h-3.5 mr-1" />
                     Add Backup Stream
-                </button>
+                </Button>
             </div>
 
             <div className="space-y-3">
@@ -197,12 +202,14 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
                                                 but it's assigned to Day {validation.expectedDay}.
                                             </p>
                                             {validation.canSwap && (
-                                                <button
+                                                <Button
                                                     onClick={() => swapStreams(stream.id, validation.correctDayStreamId)}
-                                                    className="mt-2 text-xs px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 rounded-lg transition-colors font-semibold"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="mt-2 text-xs bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 h-7"
                                                 >
                                                     Swap with Day {validation.actualDay} stream
-                                                </button>
+                                                </Button>
                                             )}
                                         </div>
                                     </div>
@@ -224,7 +231,7 @@ function StreamInput({ stream, loading, error, canRemove, onUrlChange, onRemove 
         <div className="relative">
             <div className="flex items-center gap-2">
                 <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-400 mb-1.5">
+                    <Label className="block text-sm font-medium text-gray-400 mb-1.5">
                         {stream.label}
                         {loading && (
                             <span className="ml-2 text-xs text-[#4FCEEC]">
@@ -242,23 +249,25 @@ function StreamInput({ stream, loading, error, canRemove, onUrlChange, onRemove 
                                 ⚠ {error}
                             </span>
                         )}
-                    </label>
-                    <input
+                    </Label>
+                    <Input
                         type="text"
                         value={stream.url}
                         onChange={(e) => onUrlChange(e.target.value)}
                         placeholder="https://www.youtube.com/watch?v=..."
-                        className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
+                        className="bg-black/40 border-white/10 focus:border-[#4FCEEC]"
                     />
                 </div>
                 {canRemove && (
-                    <button
+                    <Button
                         onClick={onRemove}
-                        className="p-2 mt-6 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                        variant="ghost"
+                        size="icon"
+                        className="mt-6 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                         title="Remove this stream"
                     >
                         <X className="w-5 h-5" />
-                    </button>
+                    </Button>
                 )}
             </div>
         </div>
