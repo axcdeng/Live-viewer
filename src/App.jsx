@@ -13,7 +13,7 @@ import { findWebcastCandidates } from './services/webcastDetection';
 import { getCachedWebcast, setCachedWebcast, saveEventToHistory } from './services/eventCache';
 import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutReason } from './utils/streamMatching';
 import { parseCalendarDate } from './utils/dateUtils';
-import { Analytics } from "@vercel/analytics/next";
+import { Analytics } from "@vercel/analytics/react";
 
 function App() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
