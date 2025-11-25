@@ -170,8 +170,10 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
             const videoId = extractVimeoId(url);
             if (videoId) {
                 console.log('[StreamManager] Detected Vimeo video:', videoId);
+                const embedUrl = `https://player.vimeo.com/video/${videoId}`;
+
                 updateStream(streamId, {
-                    url: `https://player.vimeo.com/video/${videoId}`,
+                    url: embedUrl,
                     videoId,
                     platform: 'vimeo',
                     streamStartTime: null
@@ -186,6 +188,8 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
                     const validation = validateStreamDate({ ...streams.find(s => s.id === streamId), streamStartTime: metadata.startTime });
 
                     updateStream(streamId, {
+                        url: embedUrl, // Preserve URL
+                        videoId,       // Preserve video ID
                         streamStartTime: metadata.startTime,
                         platform: 'vimeo'
                     });
