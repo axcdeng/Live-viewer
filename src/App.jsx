@@ -20,6 +20,7 @@ import { Analytics } from "@vercel/analytics/react";
 function App() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [showEventHistory, setShowEventHistory] = useState(false);
+    const players = useRef({});
     const [webcastCandidates, setWebcastCandidates] = useState([]);
     const [noWebcastsFound, setNoWebcastsFound] = useState(false);
 
@@ -35,7 +36,6 @@ function App() {
     // Multi-stream support
     const [streams, setStreams] = useState([]);
     const [activeStreamId, setActiveStreamId] = useState(null);
-    const [players, setPlayers] = useState({});
 
     // Loading states
     const [eventLoading, setEventLoading] = useState(false);
