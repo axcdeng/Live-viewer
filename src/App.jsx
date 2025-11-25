@@ -338,17 +338,40 @@ function App() {
 
         const seekTimeSec = (matchTimeMs - streamStartMs) / 1000;
 
+        console.log('[Jump] Match time:', new Date(matchTimeMs).toISOString());
+        console.log('[Jump] Stream start:', new Date(streamStartMs).toISOString());
+        console.log('[Jump] Calculated seek time:', seekTimeSec, 'seconds');
+
+        if (seekTimeSec < 0) {
+            alert(`This match started before the stream began.\n\nMatch: ${new Date(matchTimeMs).toLocaleString()}\nStream: ${new Date(streamStartMs).toLocaleString()}`);
+            return;
+        }
+
         // Handle Vimeo player (promise-based API)
         if (matchStream.platform === 'vimeo') {
             console.log('[Vimeo] Seeking to', seekTimeSec, 'seconds');
-            player.setCurrentTime(seekTimeSec)
+
+            // Get video duration first to validate
+            player.getDuration()
+                .then((duration) => {
+                    console.log('[Vimeo] Video duration:', duration, 'seconds');
+
+                    if (seekTimeSec > duration) {
+                        alert(`This match is beyond the stream duration.\n\nSeek time: ${Math.floor(seekTimeSec / 60)}m ${Math.floor(seekTimeSec % 60)}s\nVideo length: ${Math.floor(duration / 60)}m ${Math.floor(duration % 60)}s`);
+                        return Promise.reject('Seek time out of bounds');
+                    }
+
+                    return player.setCurrentTime(seekTimeSec);
+                })
                 .then(() => {
                     console.log('[Vimeo] Seeked successfully');
                     return player.play();
                 })
                 .catch((error) => {
-                    console.error('[Vimeo] Error seeking:', error);
-                    alert('Error jumping to match time');
+                    if (error !== 'Seek time out of bounds') {
+                        console.error('[Vimeo] Error seeking:', error);
+                        alert('Error jumping to match time');
+                    }
                 });
         } else {
             // YouTube player
