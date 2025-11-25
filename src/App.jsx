@@ -457,7 +457,7 @@ function App() {
                                                 stream.platform === 'vimeo' ? (
                                                     <iframe
                                                         ref={(iframe) => {
-                                                            if (iframe && !players.current[stream.id]) {
+                                                            if (iframe && players.current && !players.current[stream.id]) {
                                                                 // Initialize Vimeo Player SDK
                                                                 players.current[stream.id] = new Player(iframe);
                                                                 console.log('[Vimeo] Player initialized for stream:', stream.id);
