@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import YouTube from 'react-youtube';
+import Player from '@vimeo/player';
 import { format } from 'date-fns';
 import SettingsModal from './components/SettingsModal';
 import WebcastSelector from './components/WebcastSelector';
@@ -327,21 +328,33 @@ function App() {
             return;
         }
 
-        if (!matchStream.streamStartTime) {
-            alert('Please sync this stream first!');
+        const matchTimeMs = new Date(match.started).getTime();
+        const streamStartMs = matchStream.streamStartTime;
+
+        if (!streamStartMs) {
+            alert('Stream start time not available. Try refreshing stream times.');
             return;
         }
 
-        const matchStartMs = new Date(match.started).getTime();
-        const seekTimeSec = (matchStartMs - matchStream.streamStartTime) / 1000;
+        const seekTimeSec = (matchTimeMs - streamStartMs) / 1000;
 
-        if (seekTimeSec < 0) {
-            alert("This match happened before the stream started!");
-            return;
+        // Handle Vimeo player (promise-based API)
+        if (matchStream.platform === 'vimeo') {
+            console.log('[Vimeo] Seeking to', seekTimeSec, 'seconds');
+            player.setCurrentTime(seekTimeSec)
+                .then(() => {
+                    console.log('[Vimeo] Seeked successfully');
+                    return player.play();
+                })
+                .catch((error) => {
+                    console.error('[Vimeo] Error seeking:', error);
+                    alert('Error jumping to match time');
+                });
+        } else {
+            // YouTube player
+            player.seekTo(seekTimeSec, true);
+            player.playVideo();
         }
-
-        player.seekTo(seekTimeSec, true);
-        player.playVideo();
         setSelectedMatchId(match.id);
     };
 
@@ -443,6 +456,13 @@ function App() {
                                             {stream.videoId ? (
                                                 stream.platform === 'vimeo' ? (
                                                     <iframe
+                                                        ref={(iframe) => {
+                                                            if (iframe && !players.current[stream.id]) {
+                                                                // Initialize Vimeo Player SDK
+                                                                players.current[stream.id] = new Player(iframe);
+                                                                console.log('[Vimeo] Player initialized for stream:', stream.id);
+                                                            }
+                                                        }}
                                                         src={stream.url}
                                                         width="100%"
                                                         height="100%"
@@ -460,12 +480,11 @@ function App() {
                                                             width: '100%',
                                                             playerVars: {
                                                                 autoplay: 0,
-                                                                controls: 1,
-                                                                rel: 0
+                                                                modestbranding: 1,
                                                             },
                                                         }}
-                                                        onReady={(e) => {
-                                                            players.current[stream.id] = e.target;
+                                                        onReady={(event) => {
+                                                            setPlayers(prev => ({ ...prev, [stream.id]: event.target }));
                                                         }}
                                                         className="w-full h-full"
                                                     />
