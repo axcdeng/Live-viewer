@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Tv, Plus, X, Loader, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
+import { extractVimeoId, isVimeoEvent, getVimeoVideoMetadata, parseVimeoEvent } from '../services/vimeo';
 import { getMatchDayIndex } from '../utils/streamMatching';
 
 /**
@@ -118,17 +119,99 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
     };
 
     const handleStreamUrlChange = async (streamId, url) => {
-        // Extract video ID if URL is valid
+        // Check if it's a Vimeo URL
+        if (url && url.includes('vimeo.com')) {
+            console.log('[StreamManager] Detected Vimeo URL:', url);
+
+            // Case 2: Vimeo Event Page
+            if (isVimeoEvent(url)) {
+                const eventId = extractVimeoId(url);
+                console.log('[StreamManager] Detected Vimeo event:', eventId);
+
+                setLoading(prev => ({ ...prev, [streamId]: true }));
+                setErrors(prev => ({ ...prev, [streamId]: null }));
+
+                try {
+                    const eventDays = streams.filter(s => s.dayIndex !== null).length;
+                    const eventStartDate = new Date(event.start);
+
+                    const parsedStreams = await parseVimeoEvent(eventId, eventDays, eventStartDate);
+
+                    if (parsedStreams && parsedStreams.length > 0) {
+                        console.log('[StreamManager] Auto-detected', parsedStreams.length, 'Vimeo streams');
+
+                        // Replace all streamswith parsed streams
+                        const newStreams = streams.map((s, index) => {
+                            if (index < parsedStreams.length) {
+                                const validation = validateStreamDate(parsedStreams[index]);
+                                return {
+                                    ...s,
+                                    ...parsedStreams[index],
+                                    id: s.id
+                                };
+                            }
+                            return s;
+                        });
+
+                        onStreamsChange(newStreams);
+                    } else {
+                        setErrors(prev => ({ ...prev, [streamId]: 'No archived videos found in this event' }));
+                    }
+                } catch (error) {
+                    console.error('[StreamManager] Error parsing Vimeo event:', error);
+                    setErrors(prev => ({ ...prev, [streamId]: error.message || 'Error fetching event data' }));
+                } finally {
+                    setLoading(prev => ({ ...prev, [streamId]: false }));
+                }
+                return;
+            }
+
+            // Case 1: Direct Vimeo Video
+            const videoId = extractVimeoId(url);
+            if (videoId) {
+                console.log('[StreamManager] Detected Vimeo video:', videoId);
+                updateStream(streamId, {
+                    url: `https://player.vimeo.com/video/${videoId}`,
+                    videoId,
+                    platform: 'vimeo',
+                    streamStartTime: null
+                });
+
+                // Fetch metadata
+                setLoading(prev => ({ ...prev, [streamId]: true }));
+                setErrors(prev => ({ ...prev, [streamId]: null }));
+
+                try {
+                    const metadata = await getVimeoVideoMetadata(videoId);
+                    const validation = validateStreamDate({ ...streams.find(s => s.id === streamId), streamStartTime: metadata.startTime });
+
+                    updateStream(streamId, {
+                        streamStartTime: metadata.startTime,
+                        platform: 'vimeo'
+                    });
+
+                    if (validation) {
+                        setErrors(prev => ({ ...prev, [streamId]: validation }));
+                    }
+                } catch (error) {
+                    console.error('[StreamManager] Error fetching Vimeo metadata:', error);
+                    setErrors(prev => ({ ...prev, [streamId]: error.message || 'Error fetching video data' }));
+                } finally {
+                    setLoading(prev => ({ ...prev, [streamId]: false }));
+                }
+            }
+            return;
+        }
+
+        // YouTube handling (unchanged)
         const videoId = extractVideoId(url);
 
-        // Update all properties at once to avoid race conditions
         if (videoId) {
-            updateStream(streamId, { url, videoId, streamStartTime: null });
+            updateStream(streamId, { url, videoId, platform: 'youtube', streamStartTime: null });
         } else if (!url) {
-            updateStream(streamId, { url: '', videoId: null, streamStartTime: null });
+            updateStream(streamId, { url: '', videoId: null, platform: 'youtube', streamStartTime: null });
         } else {
-            // URL is present but invalid video ID
-            updateStream(streamId, { url });
+            updateStream(streamId, { url, platform: 'youtube' });
         }
     };
 

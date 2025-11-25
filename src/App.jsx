@@ -441,21 +441,35 @@ function App() {
                                             className="w-full h-full"
                                         >
                                             {stream.videoId ? (
-                                                <YouTube
-                                                    videoId={stream.videoId}
-                                                    opts={{
-                                                        height: '100%',
-                                                        width: '100%',
-                                                        playerVars: {
-                                                            autoplay: 0,
-                                                            modestbranding: 1,
-                                                        },
-                                                    }}
-                                                    onReady={(event) => {
-                                                        setPlayers(prev => ({ ...prev, [stream.id]: event.target }));
-                                                    }}
-                                                    className="w-full h-full"
-                                                />
+                                                stream.platform === 'vimeo' ? (
+                                                    <iframe
+                                                        src={stream.url}
+                                                        width="100%"
+                                                        height="100%"
+                                                        frameBorder="0"
+                                                        allow="autoplay; fullscreen; picture-in-picture"
+                                                        allowFullScreen
+                                                        title={`Vimeo stream ${stream.id}`}
+                                                        className="w-full h-full"
+                                                    />
+                                                ) : (
+                                                    <YouTube
+                                                        videoId={stream.videoId}
+                                                        opts={{
+                                                            height: '100%',
+                                                            width: '100%',
+                                                            playerVars: {
+                                                                autoplay: 0,
+                                                                controls: 1,
+                                                                rel: 0
+                                                            },
+                                                        }}
+                                                        onReady={(e) => {
+                                                            players.current[stream.id] = e.target;
+                                                        }}
+                                                        className="w-full h-full"
+                                                    />
+                                                )
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center text-slate-600">
                                                     <div className="text-center">
