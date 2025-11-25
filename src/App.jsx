@@ -311,7 +311,7 @@ function App() {
 
         // Pause the currently active player if switching streams
         if (matchStream.id !== activeStreamId && activeStreamId) {
-            const currentPlayer = players[activeStreamId];
+            const currentPlayer = players.current[activeStreamId];
             if (currentPlayer && typeof currentPlayer.pauseVideo === 'function') {
                 currentPlayer.pauseVideo();
             }
@@ -322,7 +322,7 @@ function App() {
             setActiveStreamId(matchStream.id);
         }
 
-        const player = players[matchStream.id];
+        const player = players.current[matchStream.id];
         if (!player) {
             alert('No player found for this stream. Please wait for it to load.');
             return;
@@ -484,7 +484,7 @@ function App() {
                                                             },
                                                         }}
                                                         onReady={(event) => {
-                                                            setPlayers(prev => ({ ...prev, [stream.id]: event.target }));
+                                                            players.current[stream.id] = event.target;
                                                         }}
                                                         className="w-full h-full"
                                                     />
