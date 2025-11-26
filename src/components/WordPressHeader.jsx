@@ -130,7 +130,7 @@ export default function WordPressHeader() {
             </a>
 
             {/* Navigation Links */}
-            <div className="flex items-center gap-8">
+            <nav className="hidden md:flex items-center gap-8">
                 {navLinks.map((link, index) => {
                     // Style the last link (Contact) as a button
                     const isContactLink = link.text.includes('Contact') || link.text.includes('Join');
