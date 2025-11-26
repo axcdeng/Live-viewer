@@ -110,7 +110,7 @@ export default function WordPressHeader() {
     }
 
     return (
-        <nav className="max-w-[1600px] mx-auto px-8 py-4 flex items-center justify-between">
+        <nav className="w-full px-4 sm:px-8 py-4 flex items-center justify-between">
             {/* Logo */}
             <a
                 href="https://robostem.org"

@@ -426,7 +426,7 @@ function App() {
                 </div>
             )}
 
-            <main className="flex-1 max-w-[1600px] mx-auto w-full p-4 min-h-0">
+            <main className="flex-1 w-full p-2 sm:p-4 min-h-0 sm:max-w-[1600px] sm:mx-auto">
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-full">
                     {/* Left Column: Stream & Stream Manager */}
                     <div className="xl:col-span-8 flex flex-col gap-6 min-h-0 overflow-y-auto pr-2">
