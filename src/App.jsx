@@ -244,8 +244,8 @@ function App() {
             // First, get all teams for this event
             const eventTeams = await getTeamsForEvent(event.id);
 
-            // Find the team in the event (this gives us event-specific registration)
-            const foundTeam = eventTeams.find(t => t.number === searchNumber);
+            // Find the team in the event (case-insensitive)
+            const foundTeam = eventTeams.find(t => t.number.toUpperCase() === searchNumber.toUpperCase());
 
             if (!foundTeam) {
                 throw new Error(`Team ${searchNumber} is not registered for this event.`);
