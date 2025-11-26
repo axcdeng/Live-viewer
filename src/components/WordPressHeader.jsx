@@ -161,7 +161,7 @@ export default function WordPressHeader() {
                         </a>
                     );
                 })}
-            </div>
+            </nav>
         </nav>
     );
 }
