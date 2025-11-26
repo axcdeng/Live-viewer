@@ -8,7 +8,7 @@ import EventHistory from './components/EventHistory';
 import StreamManager from './components/StreamManager';
 import TeamList from './components/TeamList';
 import WordPressHeader from './components/WordPressHeader';
-import { getEventBySku, getTeamByNumber, getMatchesForEventAndTeam } from './services/robotevents';
+import { getEventBySku, getTeamByNumber, getMatchesForEventAndTeam, getTeamsForEvent } from './services/robotevents';
 import { extractVideoId, getStreamStartTime } from './services/youtube';
 import { findWebcastCandidates } from './services/webcastDetection';
 import { getCachedWebcast, setCachedWebcast, saveEventToHistory } from './services/eventCache';
@@ -74,12 +74,12 @@ function App() {
             const dateLabel = format(dayDate, 'MMM d');
 
             newStreams.push({
-                id: `stream-day-${i}`,
+                id: `stream - day - ${i} `,
                 url: '',
                 videoId: null,
                 streamStartTime: null,
                 dayIndex: i,
-                label: days > 1 ? `Day ${i + 1} - ${dateLabel}` : 'Livestream',
+                label: days > 1 ? `Day ${i + 1} - ${dateLabel} ` : 'Livestream',
                 date: dayDate.toISOString()
             });
         }
@@ -237,7 +237,20 @@ function App() {
         }
 
         try {
-            const foundTeam = await getTeamByNumber(searchNumber);
+            setTeamLoading(true);
+            setError('');
+            const searchNumber = teamNumber.trim();
+
+            // First, get all teams for this event
+            const eventTeams = await getTeamsForEvent(event.id);
+
+            // Find the team in the event (this gives us event-specific registration)
+            const foundTeam = eventTeams.find(t => t.number === searchNumber);
+
+            if (!foundTeam) {
+                throw new Error(`Team ${searchNumber} is not registered for this event.`);
+            }
+
             setTeam(foundTeam);
 
             let foundMatches = await getMatchesForEventAndTeam(event.id, foundTeam.id);
