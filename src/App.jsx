@@ -38,7 +38,14 @@ function App() {
     const [urlLive, setUrlLive] = useQueryState('live'); // Single day fallback
 
     // Flag to prevent infinite loops during deep linking
-    const [isDeepLinking, setIsDeepLinking] = useState(false);
+    // Flag to prevent infinite loops during deep linking
+    const [isDeepLinking, setIsDeepLinking] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            return !!params.get('sku');
+        }
+        return false;
+    });
     const hasDeepLinked = useRef(false);
 
     // Form inputs
@@ -77,16 +84,20 @@ function App() {
 
     // Deep linking: Load from URL params on mount
     useEffect(() => {
-        if (hasDeepLinked.current || isDeepLinking) return;
+        if (hasDeepLinked.current) return;
 
         const loadFromUrl = async () => {
             // Check if we have URL params to load
             if (!urlSku) {
+                // If we initialized as true but no SKU (e.g. cleared), reset flag
+                if (isDeepLinking) setIsDeepLinking(false);
                 return;
             }
 
+            // Note: isDeepLinking is already true from initialization if SKU exists
+
             hasDeepLinked.current = true;
-            setIsDeepLinking(true);
+            // setIsDeepLinking(true); // Already true via initialization
 
             try {
                 // Load event from SKU
@@ -291,16 +302,45 @@ function App() {
         }
     }, [event, urlTeam, teamNumber, team, isDeepLinking]);
 
+    const hasJumpedToMatch = useRef(false);
+
     // Sync URL params when selected match changes
     useEffect(() => {
         if (isDeepLinking) return;
+
+        // Prevent clearing the URL match param during initial load race conditions
+        // If we have a URL param, no selected match yet, and haven't performed the initial jump,
+        // we should leave the URL param alone so the auto-jump effect can use it.
+        if (urlMatch && !selectedMatchId && !hasJumpedToMatch.current) {
+            return;
+        }
 
         if (selectedMatchId) {
             setUrlMatch(selectedMatchId.toString());
         } else {
             setUrlMatch(null);
         }
-    }, [selectedMatchId, setUrlMatch, isDeepLinking]);
+    }, [selectedMatchId, setUrlMatch, isDeepLinking, urlMatch]);
+
+    // Deep linking: Auto-jump to match
+    useEffect(() => {
+        if (isDeepLinking || !urlMatch || matches.length === 0 || hasJumpedToMatch.current) return;
+
+        const matchToJump = matches.find(m => m.id.toString() === urlMatch);
+        if (matchToJump) {
+            // Find the appropriate stream for this match
+            // We need to pass event start for findStreamForMatch, make sure it's available
+            if (!event) return;
+
+            const matchStream = findStreamForMatch(matchToJump, streams, event.start);
+
+            // Check if stream is ready (has start time and player)
+            if (matchStream && matchStream.streamStartTime && players[matchStream.id]) {
+                jumpToMatch(matchToJump);
+                hasJumpedToMatch.current = true;
+            }
+        }
+    }, [isDeepLinking, urlMatch, matches, streams, players, event]);
 
     // Helper: Get active stream object
     const getActiveStream = () => {
@@ -488,16 +528,18 @@ function App() {
         try {
             setTeamLoading(true);
             setError('');
-            const searchNumber = teamNumber.trim();
+
+            // Use the searchNumber determined above (supports both specificTeamNumber and state)
+            const term = searchNumber.trim();
 
             // First, get all teams for this event
             const eventTeams = await getTeamsForEvent(event.id);
 
             // Find the team in the event (case-insensitive)
-            const foundTeam = eventTeams.find(t => t.number.toUpperCase() === searchNumber.toUpperCase());
+            const foundTeam = eventTeams.find(t => t.number.toUpperCase() === term.toUpperCase());
 
             if (!foundTeam) {
-                throw new Error(`Team ${searchNumber} is not registered for this event.`);
+                throw new Error(`Team ${term} is not registered for this event.`);
             }
 
             setTeam(foundTeam);
