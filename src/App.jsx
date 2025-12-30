@@ -26,6 +26,7 @@ function App() {
     // URL search params for deep linking
     const [urlSku, setUrlSku] = useQueryState('sku');
     const [urlTeam, setUrlTeam] = useQueryState('team');
+    const [urlMatch, setUrlMatch] = useQueryState('match'); // Selected match ID
     // Note: vid/live params will be dynamically managed based on stream count
     const [urlVid1, setUrlVid1] = useQueryState('vid1');
     const [urlVid2, setUrlVid2] = useQueryState('vid2');
@@ -310,6 +311,17 @@ function App() {
         }
     }, [event, urlTeam, teamNumber, team, isDeepLinking]);
 
+    // Sync URL params when selected match changes
+    useEffect(() => {
+        if (isDeepLinking) return;
+
+        if (selectedMatchId) {
+            setUrlMatch(selectedMatchId.toString());
+        } else {
+            setUrlMatch(null);
+        }
+    }, [selectedMatchId, setUrlMatch, isDeepLinking]);
+
     // Helper: Get active stream object
     const getActiveStream = () => {
         return streams.find(s => s.id === activeStreamId) || streams[0] || null;
@@ -328,7 +340,7 @@ function App() {
             const dateLabel = format(dayDate, 'MMM d');
 
             newStreams.push({
-                id: `stream-day-${i}`,
+                id: `stream - day - ${i} `,
                 url: '',
                 videoId: null,
                 streamStartTime: null,
@@ -570,8 +582,28 @@ function App() {
     };
 
     const jumpToMatch = (match) => {
+        console.log('🎯 [JUMP TO MATCH] Starting jump:', {
+            matchId: match.id,
+            matchName: match.name,
+            matchStarted: match.started,
+            matchScheduled: match.scheduled
+        });
+
         // Find the appropriate stream for this match
         const matchStream = findStreamForMatch(match, streams, event?.start);
+
+        console.log('📺 [JUMP TO MATCH] Stream found:', {
+            streamId: matchStream?.id,
+            streamLabel: matchStream?.label,
+            streamDayIndex: matchStream?.dayIndex,
+            streamStartTime: matchStream?.streamStartTime ? new Date(matchStream.streamStartTime).toISOString() : null,
+            allStreams: streams.map(s => ({
+                id: s.id,
+                label: s.label,
+                dayIndex: s.dayIndex,
+                streamStartTime: s.streamStartTime ? new Date(s.streamStartTime).toISOString() : null
+            }))
+        });
 
         if (!matchStream) {
             alert('No stream available for this match.');
@@ -588,6 +620,10 @@ function App() {
 
         // Switch to the correct stream if not already active
         if (matchStream.id !== activeStreamId) {
+            console.log('🔄 [JUMP TO MATCH] Switching streams:', {
+                from: activeStreamId,
+                to: matchStream.id
+            });
             setActiveStreamId(matchStream.id);
         }
 
@@ -605,6 +641,16 @@ function App() {
         const matchStartMs = new Date(match.started).getTime();
         const seekTimeSec = (matchStartMs - matchStream.streamStartTime) / 1000;
 
+        console.log('⏰ [JUMP TO MATCH] Calculated seek time:', {
+            matchStartMs,
+            matchStartDate: new Date(matchStartMs).toISOString(),
+            streamStartTimeMs: matchStream.streamStartTime,
+            streamStartDate: new Date(matchStream.streamStartTime).toISOString(),
+            differenceMs: matchStartMs - matchStream.streamStartTime,
+            seekTimeSec,
+            seekTimeFormatted: `${Math.floor(seekTimeSec / 60)}m ${Math.floor(seekTimeSec % 60)}s`
+        });
+
         if (seekTimeSec < 0) {
             alert("This match happened before the stream started!");
             return;
@@ -613,6 +659,8 @@ function App() {
         player.seekTo(seekTimeSec, true);
         player.playVideo();
         setSelectedMatchId(match.id);
+
+        console.log('✅ [JUMP TO MATCH] Jump complete, match selected:', match.id);
     };
 
     const adjustSync = (seconds) => {
@@ -747,8 +795,9 @@ function App() {
                                 )}
 
                                 {/* Stream Switcher Overlay */}
-                                {streams.length > 1 && streams.filter(s => s.videoId).length > 1 && (
-                                    <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                {streams.length > 1 && streams.filter(s => s.videoId).length > 0 && (
+                                    <div className={`absolute top-4 right-4 flex gap-2 transition-opacity duration-300 ${getActiveStream()?.videoId ? 'opacity-0 group-hover:opacity-100' : ''
+                                        }`}>
                                         {streams.filter(s => s.videoId).map((stream) => (
                                             <button
                                                 key={stream.id}

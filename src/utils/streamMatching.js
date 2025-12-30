@@ -59,27 +59,33 @@ export const findStreamForMatch = (match, streams, eventStartDate) => {
     const matchDay = getMatchDayIndex(matchStartTime, eventStartDate);
     const matchTimeMs = new Date(matchStartTime).getTime();
 
-    // Filter streams that could show this match:
-    // 1. Stream is for the same day (or is a backup stream with dayIndex null)
-    // 2. Stream started before or at the match time
-    const validStreams = streams.filter(stream => {
-        // Check if stream is for this day or is a backup stream (dayIndex === null)
-        const matchesDay = stream.dayIndex === null || stream.dayIndex === matchDay;
-        if (!matchesDay) return false;
+    // Filter streams that have valid start times
+    const streamsWithStartTime = streams.filter(stream => stream.streamStartTime);
 
-        // Check if stream has a valid start time
-        if (!stream.streamStartTime) return false;
+    if (streamsWithStartTime.length === 0) return null;
 
-        // Check if stream started before the match
-        const streamStartedBeforeMatch = stream.streamStartTime <= matchTimeMs;
+    // Prefer streams from the same day, but accept any stream if needed
+    const sameDayStreams = streamsWithStartTime.filter(stream =>
+        stream.dayIndex === null || stream.dayIndex === matchDay
+    );
 
-        return streamStartedBeforeMatch;
-    });
+    // Use same-day streams if available, otherwise use any available stream
+    const candidateStreams = sameDayStreams.length > 0 ? sameDayStreams : streamsWithStartTime;
 
-    if (validStreams.length === 0) return null;
+    // Filter to only streams that started before the match
+    const validStreams = candidateStreams.filter(stream =>
+        stream.streamStartTime <= matchTimeMs
+    );
+
+    if (validStreams.length === 0) {
+        // If no stream started before the match, use the earliest available stream
+        // This allows jumping to matches even if the stream started late
+        return candidateStreams.reduce((earliest, current) =>
+            current.streamStartTime < earliest.streamStartTime ? current : earliest
+        );
+    }
 
     // Return the stream with start time CLOSEST to (but before) the match time
-    // This handles cases where there are multiple streams (e.g., backup stream due to technical issues)
     return validStreams.reduce((closest, current) => {
         const closestDiff = matchTimeMs - closest.streamStartTime;
         const currentDiff = matchTimeMs - current.streamStartTime;
