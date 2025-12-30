@@ -77,25 +77,20 @@ function App() {
 
     // Deep linking: Load from URL params on mount
     useEffect(() => {
-        console.log('[DEEP LINK] Effect triggered', { hasDeepLinked: hasDeepLinked.current, isDeepLinking, urlSku });
         if (hasDeepLinked.current || isDeepLinking) return;
 
         const loadFromUrl = async () => {
             // Check if we have URL params to load
             if (!urlSku) {
-                console.log('[DEEP LINK] No SKU in URL, skipping');
                 return;
             }
 
-            console.log('[DEEP LINK] Starting deep link load for SKU:', urlSku);
             hasDeepLinked.current = true;
             setIsDeepLinking(true);
 
             try {
                 // Load event from SKU
-                console.log('[DEEP LINK] Fetching event...');
                 const foundEvent = await getEventBySku(urlSku);
-                console.log('[DEEP LINK] Event loaded:', foundEvent.name);
                 setEvent(foundEvent);
                 setEventUrl(`https://www.robotevents.com/${urlSku}.html`);
 
@@ -148,7 +143,6 @@ function App() {
                     });
                 }
 
-                console.log('[DEEP LINK] Setting streams:', newStreams);
                 setStreams(newStreams);
                 if (newStreams.length > 0) {
                     setActiveStreamId(newStreams[0].id);
@@ -159,14 +153,12 @@ function App() {
                     setTeamNumber(urlTeam);
                 }
             } catch (err) {
-                console.error('[DEEP LINK] Error:', err);
+                console.error('Error loading from URL:', err);
                 setError(`Failed to load from URL: ${err.message}`);
             } finally {
                 // Delay resetting isDeepLinking to prevent URL sync effects from running too early
                 // Give enough time for stream start times to be fetched
-                console.log('[DEEP LINK] Waiting 1s before clearing isDeepLinking flag...');
                 setTimeout(() => {
-                    console.log('[DEEP LINK] Clearing isDeepLinking flag');
                     setIsDeepLinking(false);
                 }, 1000);
             }
@@ -177,37 +169,25 @@ function App() {
 
     // Sync URL params when event changes
     useEffect(() => {
-        console.log('[URL SYNC - EVENT] Effect triggered', { isDeepLinking, hasDeepLinked: hasDeepLinked.current, event: event?.name });
         if (isDeepLinking || hasDeepLinked.current && !event) {
-            console.log('[URL SYNC - EVENT] Skipping (isDeepLinking or no event after deep link)');
             return;
         }
 
         if (event && event.sku) {
-            console.log('[URL SYNC - EVENT] Setting SKU:', event.sku);
             setUrlSku(event.sku);
         } else {
-            console.log('[URL SYNC - EVENT] Clearing SKU');
             setUrlSku(null);
         }
     }, [event, setUrlSku, isDeepLinking]);
 
     // Sync URL params when streams change
     useEffect(() => {
-        console.log('[URL SYNC - STREAMS] Effect triggered', {
-            isDeepLinking,
-            hasEvent: !!event,
-            streamCount: streams.length,
-            streams: streams.map(s => ({ id: s.id, url: s.url, videoId: s.videoId, streamStartTime: s.streamStartTime }))
-        });
         if (isDeepLinking) {
-            console.log('[URL SYNC - STREAMS] Skipping (isDeepLinking=true)');
             return;
         }
 
         if (!event || streams.length === 0) {
             // Clear all video params
-            console.log('[URL SYNC - STREAMS] Clearing all params (no event or no streams)');
             setUrlVid(null);
             setUrlLive(null);
             setUrlVid1(null);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Tv, Plus, X, Loader, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
@@ -12,6 +12,9 @@ import { getMatchDayIndex } from '../utils/streamMatching';
 function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
     const [loading, setLoading] = useState({});
     const [errors, setErrors] = useState({});
+
+    // Track which videoIds we've already fetched to prevent duplicate fetches
+    const fetchedVideoIds = useRef(new Set());
 
     // Validate stream dates against event dates
     const validateStreamDate = (stream) => {
@@ -74,9 +77,21 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
 
     // Fetch stream start times when stream URLs change
     useEffect(() => {
+        // Only clear the cache when the set of videoIds actually changes
+        const currentVideoIds = streams.map(s => s.videoId).filter(Boolean).sort().join(',');
+        const previousVideoIds = Array.from(fetchedVideoIds.current).sort().join(',');
+
+        if (currentVideoIds !== previousVideoIds) {
+            fetchedVideoIds.current.clear();
+        }
+
         const fetchStreamTimes = async () => {
             for (const stream of streams) {
-                if (stream.videoId && !stream.streamStartTime && !loading[stream.id]) {
+                // Check if  we should fetch: has videoId, doesn't have start time, not loading, and haven't fetched this ID before
+                if (stream.videoId && !stream.streamStartTime && !loading[stream.id] && !fetchedVideoIds.current.has(stream.videoId)) {
+                    // Mark this videoId as being fetched
+                    fetchedVideoIds.current.add(stream.videoId);
+
                     setLoading(prev => ({ ...prev, [stream.id]: true }));
                     setErrors(prev => ({ ...prev, [stream.id]: null }));
 
@@ -111,10 +126,11 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
     }, [streams.map(s => s.videoId).join(',')]); // Only re-run when video IDs change
 
     const updateStream = (streamId, updates) => {
-        const updatedStreams = streams.map(s =>
-            s.id === streamId ? { ...s, ...updates } : s
+        onStreamsChange(prevStreams =>
+            prevStreams.map(s =>
+                s.id === streamId ? { ...s, ...updates } : s
+            )
         );
-        onStreamsChange(updatedStreams);
     };
 
     const handleStreamUrlChange = async (streamId, url) => {
