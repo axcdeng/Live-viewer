@@ -61,7 +61,7 @@ function Viewer() {
     const [teamNumber, setTeamNumber] = useState('');
 
     // UI State
-    const [activeTab, setActiveTab] = useState('search'); // 'search', 'list', 'matches'
+    const [activeTab, setActiveTab] = useState('list'); // 'search', 'list', 'matches'
     const [expandedMatchId, setExpandedMatchId] = useState(null);
 
     // Data
@@ -400,6 +400,20 @@ function Viewer() {
             setActiveStreamId(newStreams[0].id);
         }
     };
+
+    // Auto-switch active stream if current is empty and others have content
+    useEffect(() => {
+        const activeStream = getActiveStream();
+        const hasVideo = activeStream?.videoId;
+
+        if (!hasVideo) {
+            // Find first stream with a video
+            const firstWithVideo = streams.find(s => s.videoId);
+            if (firstWithVideo) {
+                setActiveStreamId(firstWithVideo.id);
+            }
+        }
+    }, [streams, activeStreamId]);
 
     const handleEventSearch = async () => {
         if (!eventUrl.trim()) {
@@ -888,6 +902,22 @@ function Viewer() {
                                         streams={streams}
                                         onStreamsChange={setStreams}
                                         onWebcastSelect={handleWebcastSelect}
+                                        onSeek={(seconds) => {
+                                            const player = players[activeStreamId];
+                                            if (player && typeof player.getCurrentTime === 'function') {
+                                                const currentTime = player.getCurrentTime();
+                                                player.seekTo(currentTime + seconds, true);
+                                            }
+                                        }}
+                                        onJumpToSyncedStart={() => {
+                                            const match = matches.find(m => m.id === selectedMatchId);
+                                            if (match) {
+                                                jumpToMatch(match);
+                                            } else {
+                                                alert("No match selected to sync back to.");
+                                            }
+                                        }}
+                                        canControl={!!players[activeStreamId]}
                                     />
                                 )}
                                 {noWebcastsFound && (

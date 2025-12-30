@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Plus, X, Loader, AlertTriangle } from 'lucide-react';
+import { Tv, Plus, X, Loader, AlertTriangle, Rewind, FastForward, RotateCcw, RotateCw, Play } from 'lucide-react';
 import { format } from 'date-fns';
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
 import { getMatchDayIndex } from '../utils/streamMatching';
@@ -9,7 +9,7 @@ import { getMatchDayIndex } from '../utils/streamMatching';
  * Auto-creates stream boxes based on event duration
  * Allows adding backup streams
  */
-function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
+function StreamManager({ event, streams, onStreamsChange, onWebcastSelect, onSeek, onJumpToSyncedStart, canControl }) {
     const [loading, setLoading] = useState({});
     const [errors, setErrors] = useState({});
 
@@ -169,19 +169,61 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect }) {
     };
 
     return (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-4">
+        <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h3 className="text-white font-bold flex items-center gap-2">
                     <Tv className="w-5 h-5 text-[#4FCEEC]" />
                     Livestream URLs
                 </h3>
-                <button
-                    onClick={addStream}
-                    className="text-xs px-3 py-1.5 bg-[#4FCEEC]/20 hover:bg-[#4FCEEC]/30 text-[#4FCEEC] rounded-lg transition-colors flex items-center gap-1"
-                >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Backup Stream
-                </button>
+
+                <div className="flex items-center gap-4">
+                    {/* Playback Controls */}
+                    <div className={`flex items-center bg-black/40 border border-gray-800 rounded-lg p-1 transition-opacity ${canControl ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+                        <button
+                            onClick={() => onSeek(-60)}
+                            className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded transition-colors"
+                            title="Back 1m"
+                        >
+                            <Rewind className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                            onClick={() => onSeek(-10)}
+                            className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded transition-colors"
+                            title="Back 10s"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                            onClick={onJumpToSyncedStart}
+                            className="p-1.5 hover:bg-[#4FCEEC]/20 text-[#4FCEEC] rounded transition-colors mx-1"
+                            title="Synced Start"
+                        >
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                        </button>
+                        <button
+                            onClick={() => onSeek(10)}
+                            className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded transition-colors"
+                            title="Forward 10s"
+                        >
+                            <RotateCw className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                            onClick={() => onSeek(60)}
+                            className="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded transition-colors"
+                            title="Forward 1m"
+                        >
+                            <FastForward className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+
+                    <button
+                        onClick={addStream}
+                        className="text-xs px-3 py-1.5 bg-[#4FCEEC]/10 hover:bg-[#4FCEEC]/20 text-[#4FCEEC] border border-[#4FCEEC]/20 rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Backup Stream
+                    </button>
+                </div>
             </div>
 
             <div className="space-y-3">
