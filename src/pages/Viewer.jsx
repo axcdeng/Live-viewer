@@ -1934,7 +1934,7 @@ function Viewer() {
                                                         : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                                                         }`}
                                                 >
-                                                    {filterType === 'quals' ? 'Qualifications' : filterType === 'elim' ? 'Eliminations' : 'All Matches'}
+                                                    {filterType === 'quals' ? 'Quals' : filterType === 'elim' ? 'Elims' : 'All Matches'}
                                                 </button>
                                             ))}
 
@@ -2084,10 +2084,20 @@ function Viewer() {
                                                                                                 {/* Teams list */}
                                                                                                 <div className="flex flex-col gap-1">
                                                                                                     {alliance.teams.map((t) => (
-                                                                                                        <div key={t.team.id || Math.random()} className={`${isSearchedTeam(t) ? 'bg-white/10 rounded px-1 -mx-1 font-bold text-white' : ''}`}>
+                                                                                                        <button
+                                                                                                            key={t.team.id || Math.random()}
+                                                                                                            onClick={(e) => {
+                                                                                                                e.stopPropagation();
+                                                                                                                const teamNum = t.team.number || t.team.name;
+                                                                                                                setActiveTab('search');
+                                                                                                                setTeamNumber(teamNum);
+                                                                                                                handleTeamSearch(teamNum);
+                                                                                                            }}
+                                                                                                            className={`text-left hover:underline cursor-pointer transition-all ${isSearchedTeam(t) ? 'bg-white/10 rounded px-1 -mx-1 font-bold text-white' : 'hover:text-white'}`}
+                                                                                                        >
                                                                                                             {/* Fallback to name if number is missing */}
                                                                                                             {t.team.number || t.team.name}
-                                                                                                        </div>
+                                                                                                        </button>
                                                                                                     ))}
                                                                                                 </div>
                                                                                             </div>

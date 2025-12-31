@@ -245,7 +245,7 @@ const TeamList = ({ event, onTeamSelect, multiDivisionMode }) => {
             </div>
 
             {/* Team List */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-2">
+            <div className="overflow-y-auto p-2 space-y-2 h-[600px]">
                 {viewMode === 'world_skills' ? (
                     <div className="flex flex-col items-center justify-center h-64 text-center px-4">
                         <Globe className="w-12 h-12 text-gray-600 mb-4" />
