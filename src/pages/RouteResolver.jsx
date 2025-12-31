@@ -21,37 +21,9 @@ function RouteResolver() {
                 const routeConfig = routesData.find(r => r.path === shortCode);
 
                 if (routeConfig) {
-                    // Construct the query string
-                    const params = new URLSearchParams();
-                    params.set('sku', routeConfig.sku);
-
-                    // Add streams
-                    routeConfig.streams.forEach((stream, index) => {
-                        // Assuming streams are saved as an array of objects with url/videoId or simple strings
-                        // Adapting to likely formats
-                        const videoId = typeof stream === 'string' ? stream : (stream.videoId || stream.id);
-                        const isLive = typeof stream === 'object' && stream.isLive;
-
-                        // Use indexed params for multi-stream/multi-day
-                        if (routeConfig.streams.length === 1) {
-                            if (isLive) {
-                                params.set('live', videoId);
-                            } else {
-                                params.set('vid', videoId);
-                            }
-                        } else {
-                            const suffix = index + 1; // 1-based index (vid1, vid2)
-                            if (isLive) {
-                                params.set(`live${suffix}`, videoId);
-                            } else {
-                                params.set(`vid${suffix}`, videoId);
-                            }
-                        }
-                    });
-
-                    // Redirect to home with params
-                    // Use replace to prevent back button from landing here again
-                    navigate(`/?${params.toString()}`, { replace: true });
+                    // Use the dedicated preset query parameter
+                    // This allows Viewer.jsx to load the full preset configuration correctly
+                    navigate(`/?preset=${routeConfig.path}`, { replace: true });
                 } else {
                     setError(`Route "${shortCode}" not found.`);
                     // Optional: Redirect to home after a delay

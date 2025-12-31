@@ -9,7 +9,19 @@ import { getMatchDayIndex } from '../utils/streamMatching';
  * Auto-creates stream boxes based on event duration
  * Allows adding backup streams
  */
-function StreamManager({ event, streams, onStreamsChange, onWebcastSelect, onSeek, onJumpToSyncedStart, canControl }) {
+function StreamManager({
+    event,
+    streams,
+    onStreamsChange,
+    onWebcastSelect,
+    onSeek,
+    onJumpToSyncedStart,
+    canControl,
+    multiDivisionMode,
+    onMultiDivisionModeChange,
+    activeDivisionId,
+    onActiveDivisionIdChange
+}) {
     const [feedback, setFeedback] = useState(null);
     const feedbackTimeout = useRef(null);
 
@@ -192,13 +204,47 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect, onSee
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <h3 className="text-white font-bold flex items-center gap-2">
-                    <Tv className="w-5 h-5 text-[#4FCEEC]" />
-                    Livestream URLs
-                </h3>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <h3 className="text-white font-bold flex items-center gap-2 whitespace-nowrap">
+                        <Tv className="w-5 h-5 text-[#4FCEEC]" />
+                        Livestream URLs
+                    </h3>
 
-                <div className="flex items-center gap-3">
+                    {/* Division Switcher Tabs */}
+                    {multiDivisionMode && event?.divisions?.length > 1 && (
+                        <div className="flex flex-wrap gap-1 bg-black/40 p-1 rounded-lg border border-gray-800/50">
+                            {event.divisions.map((div) => (
+                                <button
+                                    key={div.id}
+                                    onClick={() => onActiveDivisionIdChange(div.id)}
+                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-wider ${activeDivisionId === div.id
+                                        ? 'bg-[#4FCEEC] text-black shadow-lg shadow-[#4FCEEC]/20'
+                                        : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                                        }`}
+                                >
+                                    {div.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Multi-Division Toggle */}
+                    {event?.divisions?.length > 1 && (
+                        <button
+                            onClick={() => onMultiDivisionModeChange(!multiDivisionMode)}
+                            className={`text-[10px] font-bold px-2 py-1 rounded border transition-all whitespace-nowrap ${multiDivisionMode
+                                ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
+                                : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-400'
+                                }`}
+                            title={multiDivisionMode ? "Disable Multi-Division Mode" : "Enable Multi-Division Mode"}
+                        >
+                            {multiDivisionMode ? 'DIVISIONS: ON' : 'DIVISIONS: OFF'}
+                        </button>
+                    )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
                     {/* Playback Controls */}
                     <div className="flex items-center gap-3">
                         {/* Playback Controls Container */}
@@ -305,7 +351,11 @@ function StreamManager({ event, streams, onStreamsChange, onWebcastSelect, onSee
             </div>
 
             <div className="space-y-3">
-                {streams.map((stream) => {
+
+                {(multiDivisionMode
+                    ? streams.filter(s => s.divisionId === activeDivisionId)
+                    : streams.filter(s => s.divisionId === (event?.divisions?.[0]?.id || 1))
+                ).map((stream) => {
                     const validation = validateStreamDate(stream);
 
                     return (

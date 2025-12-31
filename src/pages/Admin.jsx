@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList } from 'lucide-react';
+import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList, RefreshCw, Layout } from 'lucide-react';
+import { getEventBySku } from '../services/robotevents';
+import { calculateEventDays } from '../utils/streamMatching';
+import { extractVideoId } from '../services/youtube';
+
+const extractSku = (text) => {
+    if (!text) return '';
+    // Handle full RobotEvents URL
+    // e.g. https://www.robotevents.com/robot-competitions/vex-robotics-competition/RE-VRC-24-5219.html
+    const skuMatch = text.match(/(RE-[A-Z0-9-]+)/i);
+    if (skuMatch) return skuMatch[1].toUpperCase();
+    return text.trim().toUpperCase();
+};
 
 function Admin() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -16,10 +28,14 @@ function Admin() {
         label: '',
         path: '',
         sku: '',
-        streams: ['']
+        streams: [''],
+        multiStreams: null
     });
 
     const [copied, setCopied] = useState(false);
+    const [isFetchingEvent, setIsFetchingEvent] = useState(false);
+    const [activeDivisionTab, setActiveDivisionTab] = useState(null);
+    const [eventDivisions, setEventDivisions] = useState([]);
 
     useEffect(() => {
         const sessionAuth = sessionStorage.getItem('adminAuth');
@@ -60,23 +76,96 @@ function Admin() {
         sessionStorage.removeItem('adminAuth');
     };
 
+    const handleAutoDetect = async () => {
+        if (!newRoute.sku) {
+            alert('Please enter a SKU first');
+            return;
+        }
+
+        setIsFetchingEvent(true);
+        try {
+            const event = await getEventBySku(newRoute.sku);
+            const days = calculateEventDays(event.start, event.end);
+            const divisions = event.divisions && event.divisions.length > 0
+                ? event.divisions
+                : [{ id: 1, name: 'Default' }];
+
+            setEventDivisions(divisions);
+            setActiveDivisionTab(divisions[0].id);
+
+            setNewRoute(prev => ({
+                ...prev,
+                label: event.name, // Always update label on auto-fill
+                sku: event.sku,    // Ensure SKU is clean (if it was a URL)
+                // Initialize/Update streams structure
+                // We'll store it as an object mapping divisionId to array of day vids
+                multiStreams: divisions.reduce((acc, div) => {
+                    // Try to preserve existing vids if we were already editing this SKU
+                    const existing = prev.multiStreams?.[div.id] || (div.id === 1 ? prev.streams : []);
+                    const newVids = Array(days).fill('').map((_, i) => existing[i] || '');
+                    acc[div.id] = newVids;
+                    return acc;
+                }, {})
+            }));
+
+        } catch (err) {
+            console.error('Auto-detect failed', err);
+            alert('Failed to fetch event info: ' + err.message);
+        } finally {
+            setIsFetchingEvent(false);
+        }
+    };
+
     const addStreamInput = () => {
-        setNewRoute(prev => ({
-            ...prev,
-            streams: [...prev.streams, '']
-        }));
+        if (eventDivisions.length > 1) {
+            const divId = activeDivisionTab;
+            const currentDivStreams = newRoute.multiStreams?.[divId] || [];
+            const newDivStreams = [...currentDivStreams, ''];
+            setNewRoute(prev => ({
+                ...prev,
+                multiStreams: { ...prev.multiStreams, [divId]: newDivStreams }
+            }));
+        } else {
+            setNewRoute(prev => ({
+                ...prev,
+                streams: [...prev.streams, '']
+            }));
+        }
     };
 
     const updateStreamInput = (index, value) => {
-        const newStreams = [...newRoute.streams];
-        newStreams[index] = value;
-        setNewRoute(prev => ({ ...prev, streams: newStreams }));
+        const processedValue = extractVideoId(value) || value;
+        if (eventDivisions.length > 1) {
+            const divId = activeDivisionTab;
+            const newDivStreams = [...(newRoute.multiStreams[divId] || [])];
+            newDivStreams[index] = processedValue;
+            setNewRoute(prev => ({
+                ...prev,
+                multiStreams: { ...prev.multiStreams, [divId]: newDivStreams }
+            }));
+        } else {
+            const newStreams = [...newRoute.streams];
+            newStreams[index] = processedValue;
+            setNewRoute(prev => ({ ...prev, streams: newStreams }));
+        }
     };
 
     const removeStreamInput = (index) => {
-        if (newRoute.streams.length > 1) {
-            const newStreams = newRoute.streams.filter((_, i) => i !== index);
-            setNewRoute(prev => ({ ...prev, streams: newStreams }));
+        if (eventDivisions.length > 1) {
+            const divId = activeDivisionTab;
+            const currentDivStreams = newRoute.multiStreams[divId] || [];
+            if (currentDivStreams.length > 1) {
+                const newDivStreams = currentDivStreams.filter((_, i) => i !== index);
+                setNewRoute(prev => ({
+                    ...prev,
+                    multiStreams: { ...prev.multiStreams, [divId]: newDivStreams }
+                }));
+            }
+        } else {
+            if (newRoute.streams.length > 1) {
+                const newStreams = newRoute.streams.filter((_, i) => i !== index);
+                setNewRoute(prev => ({ ...prev, streams: newStreams }));
+            }
         }
     };
 
@@ -111,12 +200,32 @@ function Admin() {
             return;
         }
 
-        // Trim trailing empty streams, but preserve internal ones for correct indexing
-        const streams = [...newRoute.streams];
-        while (streams.length > 1 && streams[streams.length - 1].trim() === '') {
-            streams.pop();
+        let streams;
+        if (eventDivisions.length > 1 && newRoute.multiStreams) {
+            // Save as object of divisionId -> array of vids
+            streams = { ...newRoute.multiStreams };
+            // Trim empty strings from the end of each division's array
+            Object.keys(streams).forEach(divId => {
+                const arr = [...streams[divId]];
+                while (arr.length > 1 && arr[arr.length - 1].trim() === '') {
+                    arr.pop();
+                }
+                streams[divId] = arr;
+            });
+        } else {
+            // Trim trailing empty streams
+            streams = [...newRoute.streams];
+            while (streams.length > 1 && streams[streams.length - 1].trim() === '') {
+                streams.pop();
+            }
         }
-        const routeData = { ...newRoute, streams };
+
+        const routeData = {
+            label: newRoute.label,
+            path: newRoute.path,
+            sku: newRoute.sku,
+            streams: streams
+        };
 
         let updatedRoutes;
         if (editingIndex !== null) {
@@ -134,22 +243,37 @@ function Admin() {
     const startEdit = (index) => {
         setEditingIndex(index);
         const route = routes[index];
+        const isMulti = !Array.isArray(route.streams) && typeof route.streams === 'object';
+
         setNewRoute({
             label: route.label,
             path: route.path,
             sku: route.sku,
-            streams: route.streams.length > 0 ? route.streams : ['']
+            streams: isMulti ? [''] : (route.streams.length > 0 ? route.streams : ['']),
+            multiStreams: isMulti ? route.streams : null
         });
+
+        if (isMulti) {
+            const divIds = Object.keys(route.streams).map(id => parseInt(id));
+            setEventDivisions(divIds.map(id => ({ id, name: `Division ${id}` })));
+            setActiveDivisionTab(divIds[0]);
+        } else {
+            setEventDivisions([]);
+            setActiveDivisionTab(null);
+        }
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const resetForm = () => {
         setEditingIndex(null);
+        setEventDivisions([]);
+        setActiveDivisionTab(null);
         setNewRoute({
             label: '',
             path: '',
             sku: '',
-            streams: ['']
+            streams: [''],
+            multiStreams: null
         });
     };
 
@@ -167,6 +291,13 @@ function Admin() {
         navigator.clipboard.writeText(json);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleCopyLink = (path) => {
+        const url = `${window.location.origin}/${path}`;
+        navigator.clipboard.writeText(url);
+        setSuccessMessage('Link copied to clipboard!');
+        setTimeout(() => setSuccessMessage(''), 3000);
     };
 
     if (!isAuthenticated) {
@@ -284,21 +415,51 @@ function Admin() {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">RobotEvents SKU</label>
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1 flex justify-between items-center">
+                                        RobotEvents SKU
+                                        {newRoute.sku && (
+                                            <button
+                                                onClick={handleAutoDetect}
+                                                disabled={isFetchingEvent}
+                                                className="text-[#4FCEEC] hover:text-[#3db8d6] flex items-center gap-1 normal-case font-semibold transition-colors disabled:opacity-50"
+                                            >
+                                                {isFetchingEvent ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                                Auto-Fill
+                                            </button>
+                                        )}
+                                    </label>
                                     <input
                                         type="text"
                                         placeholder="RE-VRC-XX-XXXX"
                                         value={newRoute.sku}
-                                        onChange={(e) => setNewRoute({ ...newRoute, sku: e.target.value })}
+                                        onChange={(e) => setNewRoute({ ...newRoute, sku: extractSku(e.target.value) })}
                                         className="w-full bg-black border border-gray-700 rounded-lg px-4 py-2.5 text-sm focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none text-white transition-all shadow-inner font-mono"
                                     />
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Streams (YouTube IDs)</label>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Streams (YouTube IDs)</label>
+                                    {eventDivisions.length > 1 && (
+                                        <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-gray-800/50">
+                                            {eventDivisions.map((div) => (
+                                                <button
+                                                    key={div.id}
+                                                    onClick={() => setActiveDivisionTab(div.id)}
+                                                    className={`px-2 py-1 rounded text-[10px] font-bold transition-all uppercase tracking-wider ${activeDivisionTab === div.id
+                                                        ? 'bg-[#4FCEEC] text-black'
+                                                        : 'text-gray-500 hover:text-gray-300'
+                                                        }`}
+                                                >
+                                                    {div.name.split(' ')[0]}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="space-y-2">
-                                    {newRoute.streams.map((stream, idx) => (
+                                    {(eventDivisions.length > 1 ? (newRoute.multiStreams?.[activeDivisionTab] || []) : newRoute.streams).map((stream, idx) => (
                                         <div key={idx} className="flex gap-2">
                                             <div className="flex-shrink-0 w-10 flex items-center justify-center bg-gray-800 rounded-l-lg text-[10px] text-gray-500 font-bold border-y border-l border-gray-700">
                                                 D{idx + 1}
@@ -310,7 +471,7 @@ function Admin() {
                                                 onChange={(e) => updateStreamInput(idx, e.target.value)}
                                                 className="flex-1 bg-black border border-gray-700 px-3 py-2.5 text-sm focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none text-white transition-all font-mono"
                                             />
-                                            {newRoute.streams.length > 1 && (
+                                            {(eventDivisions.length > 1 ? (newRoute.multiStreams?.[activeDivisionTab]?.length > 1) : newRoute.streams.length > 1) && (
                                                 <button
                                                     onClick={() => removeStreamInput(idx)}
                                                     className="px-3 bg-gray-800 hover:bg-red-500/10 text-red-400 border border-gray-700 rounded-r-lg transition-colors"
@@ -389,13 +550,26 @@ function Admin() {
                                                     <LayoutList className="w-3 h-3" />
                                                     <span className="font-mono">{route.sku}</span>
                                                 </div>
-                                                <div className="flex items-center gap-1 text-xs text-gray-400">
+                                                <a
+                                                    href={`/${route.path}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#4FCEEC] transition-colors"
+                                                    title="Open in new tab"
+                                                >
                                                     <ExternalLink className="w-3 h-3" />
-                                                    <span>{route.streams.length} day{route.streams.length !== 1 ? 's' : ''}</span>
-                                                </div>
+                                                    <span>{Array.isArray(route.streams) ? route.streams.length : Object.keys(route.streams).length} streams</span>
+                                                </a>
                                             </div>
                                         </div>
                                         <div className="flex gap-2 shrink-0">
+                                            <button
+                                                onClick={() => handleCopyLink(route.path)}
+                                                className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors border border-gray-700"
+                                                title="Copy Link"
+                                            >
+                                                <Copy className="w-4 h-4" />
+                                            </button>
                                             <button
                                                 onClick={() => startEdit(idx)}
                                                 className="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors border border-gray-700"

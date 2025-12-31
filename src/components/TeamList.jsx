@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Trophy, Medal, Globe, Loader, Search } from 'lucide-react';
 import { getTeamsForEvent, getRankingsForEvent, getSkillsForEvent, getWorldSkillsForTeams } from '../services/robotevents';
 
-const TeamList = ({ event, onTeamSelect }) => {
+const TeamList = ({ event, onTeamSelect, multiDivisionMode }) => {
     const [teams, setTeams] = useState([]);
     const [rankings, setRankings] = useState({});
     const [skills, setSkills] = useState({});
@@ -36,7 +36,8 @@ const TeamList = ({ event, onTeamSelect }) => {
                         ties: r.ties,
                         wp: r.wp,
                         ap: r.ap,
-                        sp: r.sp
+                        sp: r.sp,
+                        division: r.division // Capture division info
                     };
                 }
             });
@@ -243,7 +244,12 @@ const TeamList = ({ event, onTeamSelect }) => {
                                             <span className="text-sm font-medium text-gray-400 w-6">#{rankingData.rank}</span>
                                         )}
                                         <span className="font-bold text-[#4FCEEC]">{team.number}</span>
-                                        <span className="text-xs text-gray-400 truncate">{team.team_name}</span>
+                                        <span className="text-xs text-gray-400 truncate max-w-[100px]">{team.team_name}</span>
+                                        {multiDivisionMode && rankingData?.division && (
+                                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 uppercase tracking-tight">
+                                                {rankingData.division.name}
+                                            </span>
+                                        )}
                                     </div>
 
                                     {/* Show ranking details when in rank view mode */}

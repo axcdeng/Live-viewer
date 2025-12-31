@@ -8,5 +8,20 @@
             "O8IR7ANKRso",
             "WsGt7dxIGzQ"
         ]
+    },
+    {
+        "label": "Diamond in the Desert (HS)",
+        "path": "diamond-hs",
+        "sku": "RE-V5RC-25-9904",
+        "streams": {
+            "1": [
+                "FBB-_HPy_cw",
+                "zKHvcTtnfXo"
+            ],
+            "2": [
+                "VrJZoD2gw_U",
+                "8F_WaGBRphE"
+            ]
+        }
     }
 ]

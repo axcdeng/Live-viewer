@@ -44,13 +44,14 @@ function Viewer() {
     const [urlLive3, setUrlLive3] = useQueryState('live3');
     const [urlVid, setUrlVid] = useQueryState('vid'); // Single day fallback
     const [urlLive, setUrlLive] = useQueryState('live'); // Single day fallback
+    const [urlPreset, setUrlPreset] = useQueryState('preset'); // Short link support
 
     // Flag to prevent infinite loops during deep linking
     // Flag to prevent infinite loops during deep linking
     const [isDeepLinking, setIsDeepLinking] = useState(() => {
         if (typeof window !== 'undefined') {
             const params = new URLSearchParams(window.location.search);
-            return !!params.get('sku');
+            return !!params.get('sku') || !!params.get('preset');
         }
         return false;
     });
@@ -98,6 +99,10 @@ function Viewer() {
     const [presets, setPresets] = useState([]);
     const [presetsLoading, setPresetsLoading] = useState(false);
     const [selectedPresetSku, setSelectedPresetSku] = useState('');
+
+    // Multi-Division State
+    const [multiDivisionMode, setMultiDivisionMode] = useState(false);
+    const [activeDivisionId, setActiveDivisionId] = useState(null);
 
     // Auto-collapse event search if event is already present from deep linking
     useEffect(() => {
@@ -147,80 +152,104 @@ function Viewer() {
 
         const loadFromUrl = async () => {
             // Check if we have URL params to load
-            if (!urlSku) {
-                // If we initialized as true but no SKU (e.g. cleared), reset flag
+            if (!urlSku && !urlPreset) {
+                // If we initialized as true but no SKU/preset (e.g. cleared), reset flag
                 if (isDeepLinking) setIsDeepLinking(false);
                 return;
             }
 
-            // Note: isDeepLinking is already true from initialization if SKU exists
-
             hasDeepLinked.current = true;
-            // setIsDeepLinking(true); // Already true via initialization
 
             try {
-                // Load event from SKU
-                const foundEvent = await getEventBySku(urlSku);
-                setEvent(foundEvent);
-                setEventUrl(`https://www.robotevents.com/${urlSku}.html`);
+                if (urlPreset) {
+                    // Try to finding the preset in current list, or fetch it
+                    let targetPreset = presets.find(p => p.path === urlPreset);
 
-                // Initialize streams for the event
-                const days = calculateEventDays(foundEvent.start, foundEvent.end);
-                const newStreams = [];
-
-                for (let i = 0; i < days; i++) {
-                    const eventStartDate = parseCalendarDate(foundEvent.start);
-                    const dayDate = new Date(eventStartDate);
-                    dayDate.setDate(eventStartDate.getDate() + i);
-                    const dateLabel = format(dayDate, 'MMM d');
-
-                    // Determine URL for this stream from URL params
-                    let streamUrl = '';
-                    let videoId = null;
-
-                    if (days === 1) {
-                        // Single day: check vid or live params
-                        if (urlVid) {
-                            streamUrl = `https://www.youtube.com/watch?v=${urlVid}`;
-                            videoId = urlVid;
-                        } else if (urlLive) {
-                            streamUrl = `https://www.youtube.com/live/${urlLive}`;
-                            videoId = urlLive;
-                        }
-                    } else {
-                        // Multi-day: check indexed params (vid1, vid2, live1, live2, etc.)
-                        const dayNum = i + 1;
-                        const vidParam = [urlVid1, urlVid2, urlVid3][i];
-                        const liveParam = [urlLive1, urlLive2, urlLive3][i];
-
-                        if (vidParam) {
-                            streamUrl = `https://www.youtube.com/watch?v=${vidParam}`;
-                            videoId = vidParam;
-                        } else if (liveParam) {
-                            streamUrl = `https://www.youtube.com/live/${liveParam}`;
-                            videoId = liveParam;
+                    if (!targetPreset) {
+                        try {
+                            const res = await fetch('/api/get-all-routes');
+                            if (res.ok) {
+                                const data = await res.json();
+                                setPresets(data);
+                                targetPreset = data.find(p => p.path === urlPreset);
+                            }
+                        } catch (err) {
+                            console.error('Failed to fetch presets for deep link', err);
                         }
                     }
 
-                    newStreams.push({
-                        id: `stream - day - ${i} `,
-                        url: streamUrl,
-                        videoId: videoId,
-                        streamStartTime: null,
-                        dayIndex: i,
-                        label: days > 1 ? `Day ${i + 1} - ${dateLabel} ` : 'Livestream',
-                        date: dayDate.toISOString()
-                    });
+                    if (targetPreset) {
+                        await handleLoadPreset(targetPreset);
+                        // Team deep linking still applies even with preset
+                        if (urlTeam) setTeamNumber(urlTeam);
+                        return;
+                    }
                 }
 
-                setStreams(newStreams);
-                if (newStreams.length > 0) {
-                    setActiveStreamId(newStreams[0].id);
-                }
+                // Standard SKU deep linking
+                if (urlSku) {
+                    const foundEvent = await getEventBySku(urlSku);
+                    setEvent(foundEvent);
+                    setEventUrl(`https://www.robotevents.com/${urlSku}.html`);
 
-                // Set team number if specified (search will be triggered by separate effect)
-                if (urlTeam) {
-                    setTeamNumber(urlTeam);
+                    // Initialize streams for the event
+                    const days = calculateEventDays(foundEvent.start, foundEvent.end);
+                    const newStreams = [];
+
+                    for (let i = 0; i < days; i++) {
+                        const eventStartDate = parseCalendarDate(foundEvent.start);
+                        const dayDate = new Date(eventStartDate);
+                        dayDate.setDate(eventStartDate.getDate() + i);
+                        const dateLabel = format(dayDate, 'MMM d');
+
+                        // Determine URL for this stream from URL params
+                        let streamUrl = '';
+                        let videoId = null;
+
+                        if (days === 1) {
+                            // Single day: check vid or live params
+                            if (urlVid) {
+                                streamUrl = `https://www.youtube.com/watch?v=${urlVid}`;
+                                videoId = urlVid;
+                            } else if (urlLive) {
+                                streamUrl = `https://www.youtube.com/live/${urlLive}`;
+                                videoId = urlLive;
+                            }
+                        } else {
+                            // Multi-day: check indexed params (vid1, vid2, live1, live2, etc.)
+                            const dayNum = i + 1;
+                            const vidParam = [urlVid1, urlVid2, urlVid3][i];
+                            const liveParam = [urlLive1, urlLive2, urlLive3][i];
+
+                            if (vidParam) {
+                                streamUrl = `https://www.youtube.com/watch?v=${vidParam}`;
+                                videoId = vidParam;
+                            } else if (liveParam) {
+                                streamUrl = `https://www.youtube.com/live/${liveParam}`;
+                                videoId = liveParam;
+                            }
+                        }
+
+                        newStreams.push({
+                            id: `stream - day - ${i} `,
+                            url: streamUrl,
+                            videoId: videoId,
+                            streamStartTime: null,
+                            dayIndex: i,
+                            label: days > 1 ? `Day ${i + 1} - ${dateLabel} ` : 'Livestream',
+                            date: dayDate.toISOString()
+                        });
+                    }
+
+                    setStreams(newStreams);
+                    if (newStreams.length > 0) {
+                        setActiveStreamId(newStreams[0].id);
+                    }
+
+                    // Set team number if specified (search will be triggered by separate effect)
+                    if (urlTeam) {
+                        setTeamNumber(urlTeam);
+                    }
                 }
             } catch (err) {
                 console.error('Error loading from URL:', err);
@@ -408,28 +437,42 @@ function Viewer() {
 
     // Helper: Calculate event duration and initialize streams
     const initializeStreamsForEvent = (eventData) => {
+        setNoWebcastsFound(false);
+        setWebcastCandidates([]);
         const days = calculateEventDays(eventData.start, eventData.end);
+        const divisions = eventData.divisions && eventData.divisions.length > 0
+            ? eventData.divisions
+            : [{ id: 1, name: 'Default Division' }];
+
         const newStreams = [];
 
-        for (let i = 0; i < days; i++) {
-            // Calculate the date for this day using calendar dates
-            const eventStartDate = parseCalendarDate(eventData.start);
-            const dayDate = new Date(eventStartDate);
-            dayDate.setDate(eventStartDate.getDate() + i);
-            const dateLabel = format(dayDate, 'MMM d');
+        divisions.forEach(division => {
+            for (let i = 0; i < days; i++) {
+                const eventStartDate = parseCalendarDate(eventData.start);
+                const dayDate = new Date(eventStartDate);
+                dayDate.setDate(eventStartDate.getDate() + i);
+                const dateLabel = format(dayDate, 'MMM d');
 
-            newStreams.push({
-                id: `stream - day - ${i} `,
-                url: '',
-                videoId: null,
-                streamStartTime: null,
-                dayIndex: i,
-                label: days > 1 ? `Day ${i + 1} - ${dateLabel} ` : 'Livestream',
-                date: dayDate.toISOString()
-            });
-        }
+                newStreams.push({
+                    id: `stream-div-${division.id}-day-${i}`,
+                    url: '',
+                    videoId: null,
+                    streamStartTime: null,
+                    divisionId: division.id,
+                    dayIndex: i,
+                    label: days > 1 ? `Day ${i + 1} - ${dateLabel}` : 'Livestream',
+                    date: dayDate.toISOString()
+                });
+            }
+        });
 
         setStreams(newStreams);
+
+        // Auto-enable multi-division mode if more than 1 division exists
+        const isMultiDiv = divisions.length > 1;
+        setMultiDivisionMode(isMultiDiv);
+        setActiveDivisionId(divisions[0].id);
+
         if (newStreams.length > 0) {
             setActiveStreamId(newStreams[0].id);
         }
@@ -620,42 +663,66 @@ function Viewer() {
     const handleLoadPreset = async (preset) => {
         setEventLoading(true);
         setError('');
+        setNoWebcastsFound(false);
+        setWebcastCandidates([]);
         setSelectedPresetSku(preset.sku);
         try {
             const foundEvent = await getEventBySku(preset.sku);
             setEvent(foundEvent);
-            setEventUrl(`https://www.robotevents.com/${preset.sku}.html`);
+            // Correct the robotevents URL format
+            setEventUrl(`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${preset.sku}.html`);
 
-            // Map streams from preset
             const days = calculateEventDays(foundEvent.start, foundEvent.end);
+            const divisions = foundEvent.divisions && foundEvent.divisions.length > 0
+                ? foundEvent.divisions
+                : [{ id: 1, name: 'Default Division' }];
+
             const newStreams = [];
 
-            for (let i = 0; i < days; i++) {
-                const eventStartDate = parseCalendarDate(foundEvent.start);
-                const dayDate = new Date(eventStartDate);
-                dayDate.setDate(eventStartDate.getDate() + i);
-                const dateLabel = format(dayDate, 'MMM d');
+            divisions.forEach(division => {
+                for (let i = 0; i < days; i++) {
+                    const eventStartDate = parseCalendarDate(foundEvent.start);
+                    const dayDate = new Date(eventStartDate);
+                    dayDate.setDate(eventStartDate.getDate() + i);
+                    const dateLabel = format(dayDate, 'MMM d');
 
-                // Get video ID from preset for this day
-                // The preset.streams array contains the YouTube IDs
-                const presetVideoId = preset.streams[i] || null;
-                const streamUrl = presetVideoId ? `https://www.youtube.com/watch?v=${presetVideoId}` : '';
+                    // Support both legacy (array) and multi-division (object) stream formats
+                    let presetVideoId = null;
+                    if (Array.isArray(preset.streams)) {
+                        const isFirstDivision = division.id === (foundEvent.divisions?.[0]?.id || 1);
+                        presetVideoId = (isFirstDivision) ? (preset.streams[i] || null) : null;
+                    } else if (preset.streams && typeof preset.streams === 'object') {
+                        const divStreams = preset.streams[division.id];
+                        presetVideoId = divStreams ? (divStreams[i] || null) : null;
+                    }
 
-                newStreams.push({
-                    id: `stream-day-${i}`,
-                    url: streamUrl,
-                    videoId: presetVideoId,
-                    streamStartTime: null,
-                    dayIndex: i,
-                    label: days > 1 ? `Day ${i + 1} - ${dateLabel}` : 'Livestream',
-                    date: dayDate.toISOString()
-                });
-            }
+                    const streamUrl = presetVideoId ? `https://www.youtube.com/watch?v=${presetVideoId}` : '';
+
+                    newStreams.push({
+                        id: `stream-div-${division.id}-day-${i}`,
+                        url: streamUrl,
+                        videoId: presetVideoId,
+                        streamStartTime: null,
+                        divisionId: division.id,
+                        dayIndex: i,
+                        label: days > 1 ? `Day ${i + 1} - ${dateLabel}` : 'Livestream',
+                        date: dayDate.toISOString()
+                    });
+                }
+            });
 
             setStreams(newStreams);
+
+            const isMultiDiv = divisions.length > 1;
+            setMultiDivisionMode(isMultiDiv);
+            setActiveDivisionId(divisions[0].id);
+
             if (newStreams.length > 0) {
-                setActiveStreamId(newStreams[0].id);
+                // If we have preset streams, find the first one that has a videoId
+                const firstWithVideo = newStreams.find(s => s.videoId);
+                setActiveStreamId(firstWithVideo ? firstWithVideo.id : newStreams[0].id);
             }
+
             setIsEventSearchCollapsed(true);
         } catch (err) {
             console.error('Failed to load preset:', err);
@@ -836,6 +903,8 @@ function Viewer() {
         setNoWebcastsFound(false);
         setWebcastCandidates([]);
         setSelectedPresetSku('');
+        setMultiDivisionMode(false);
+        setActiveDivisionId(null);
 
         // Reset URL Parameters
         setUrlSku(null);
@@ -985,21 +1054,56 @@ function Viewer() {
                                 )}
 
                                 {/* Stream Switcher Overlay */}
-                                {streams.length > 1 && streams.filter(s => s.videoId).length > 0 && (
-                                    <div className={`absolute top-4 right-4 flex gap-2 transition-opacity duration-300 ${getActiveStream()?.videoId ? 'opacity-0 group-hover:opacity-100' : ''
-                                        }`}>
-                                        {streams.filter(s => s.videoId).map((stream) => (
-                                            <button
-                                                key={stream.id}
-                                                onClick={() => setActiveStreamId(stream.id)}
-                                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors backdrop-blur-md ${activeStreamId === stream.id
-                                                    ? 'bg-[#4FCEEC]/90 text-black'
-                                                    : 'bg-black/60 text-white hover:bg-black/80'
-                                                    }`}
-                                            >
-                                                {stream.label}
-                                            </button>
-                                        ))}
+                                {streams.length > 1 && (
+                                    <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${getActiveStream()?.videoId ? 'opacity-0 group-hover:opacity-100' : ''}`}>
+
+                                        {/* Division Switcher (Top Left) */}
+                                        {multiDivisionMode && event?.divisions?.length > 1 && (
+                                            <div className="absolute top-4 left-4 flex gap-1.5 pointer-events-auto">
+                                                {event.divisions.map((div) => {
+                                                    const hasAnyVideo = streams.some(s => s.divisionId === div.id && s.videoId);
+                                                    return (
+                                                        <button
+                                                            key={div.id}
+                                                            onClick={() => {
+                                                                const currentStream = getActiveStream();
+                                                                const targetDayIndex = currentStream?.dayIndex || 0;
+                                                                const targetStream = streams.find(s => s.divisionId === div.id && s.dayIndex === targetDayIndex) || streams.find(s => s.divisionId === div.id);
+                                                                if (targetStream) {
+                                                                    setActiveDivisionId(div.id);
+                                                                    setActiveStreamId(targetStream.id);
+                                                                }
+                                                            }}
+                                                            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all backdrop-blur-md border ${activeDivisionId === div.id
+                                                                ? 'bg-[#4FCEEC] text-black border-[#4FCEEC] shadow-lg shadow-[#4FCEEC]/20'
+                                                                : 'bg-black/60 text-gray-400 border-gray-800 hover:text-white hover:bg-black/80'
+                                                                } ${!hasAnyVideo ? 'opacity-50' : ''}`}
+                                                        >
+                                                            {div.name}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+
+                                        {/* Day Switcher (Top Right) */}
+                                        <div className="absolute top-4 right-4 flex gap-2 pointer-events-auto">
+                                            {(multiDivisionMode
+                                                ? streams.filter(s => s.divisionId === activeDivisionId && s.videoId)
+                                                : streams.filter(s => s.divisionId === (event?.divisions?.[0]?.id || 1) && s.videoId)
+                                            ).map((stream) => (
+                                                <button
+                                                    key={stream.id}
+                                                    onClick={() => setActiveStreamId(stream.id)}
+                                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors backdrop-blur-md ${activeStreamId === stream.id
+                                                        ? 'bg-[#4FCEEC]/90 text-black'
+                                                        : 'bg-black/60 text-white hover:bg-black/80'
+                                                        }`}
+                                                >
+                                                    {stream.label}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -1026,6 +1130,10 @@ function Viewer() {
                                         streams={streams}
                                         onStreamsChange={setStreams}
                                         onWebcastSelect={handleWebcastSelect}
+                                        multiDivisionMode={multiDivisionMode}
+                                        onMultiDivisionModeChange={setMultiDivisionMode}
+                                        activeDivisionId={activeDivisionId}
+                                        onActiveDivisionIdChange={setActiveDivisionId}
                                         onSeek={(seconds) => {
                                             const player = players[activeStreamId];
                                             if (player && typeof player.getCurrentTime === 'function') {
@@ -1205,8 +1313,17 @@ function Viewer() {
                                         </div>
                                         {team && (
                                             <div className="p-3 bg-black border border-gray-700 rounded-lg">
-                                                <p className="text-white font-semibold text-sm">{team.number} - {team.team_name}</p>
-                                                <p className="text-xs text-gray-400">{team.organization}</p>
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <p className="text-white font-semibold text-sm">{team.number} - {team.team_name}</p>
+                                                        <p className="text-xs text-gray-400">{team.organization}</p>
+                                                    </div>
+                                                    {matches.length > 0 && matches[0].division && multiDivisionMode && (
+                                                        <span className="text-[10px] font-bold px-2 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
+                                                            {matches[0].division.name}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 {team.grade && (
                                                     <p className="text-xs text-cyan-400 mt-1">
                                                         {team.grade} {team.program?.code && `• ${team.program.code}`}
@@ -1442,19 +1559,39 @@ function Viewer() {
                                                 className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
                                             />
                                         </div>
-                                        <div className="flex gap-2">
-                                            {['all', 'quals', 'elim'].map((filterType) => (
-                                                <button
-                                                    key={filterType}
-                                                    onClick={() => setMatchesTabState(prev => ({ ...prev, filter: filterType }))}
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${matchesTabState.filter === filterType
-                                                        ? 'bg-[#4FCEEC] text-black'
-                                                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                                                        }`}
-                                                >
-                                                    {filterType === 'quals' ? 'Qualifications' : filterType === 'elim' ? 'Eliminations' : 'All Matches'}
-                                                </button>
-                                            ))}
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex gap-2">
+                                                {['all', 'quals', 'elim'].map((filterType) => (
+                                                    <button
+                                                        key={filterType}
+                                                        onClick={() => setMatchesTabState(prev => ({ ...prev, filter: filterType }))}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${matchesTabState.filter === filterType
+                                                            ? 'bg-[#4FCEEC] text-black'
+                                                            : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                                                            }`}
+                                                    >
+                                                        {filterType === 'quals' ? 'Qualifications' : filterType === 'elim' ? 'Eliminations' : 'All Matches'}
+                                                    </button>
+                                                ))}
+                                            </div>
+
+                                            {/* Division Switcher in Matches Tab */}
+                                            {multiDivisionMode && event?.divisions?.length > 1 && (
+                                                <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-hide">
+                                                    {event.divisions.map((div) => (
+                                                        <button
+                                                            key={div.id}
+                                                            onClick={() => setActiveDivisionId(div.id)}
+                                                            className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all uppercase whitespace-nowrap ${activeDivisionId === div.id
+                                                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                                                : 'bg-gray-800/50 text-gray-500 border border-transparent hover:text-gray-400'
+                                                                }`}
+                                                        >
+                                                            {div.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -1468,6 +1605,14 @@ function Viewer() {
                                             (() => {
                                                 // Filter logic
                                                 const filteredMatches = allMatches.filter(match => {
+                                                    // Filter by division
+                                                    if (multiDivisionMode) {
+                                                        if (activeDivisionId && match.division?.id !== activeDivisionId) return false;
+                                                    } else if (event?.divisions?.length > 1) {
+                                                        // If multi-division event but mode is OFF, default to first division
+                                                        if (match.division?.id !== event.divisions[0].id) return false;
+                                                    }
+
                                                     // Filter by type
                                                     if (matchesTabState.filter === 'quals' && !match.name.toLowerCase().includes('qual')) return false;
                                                     if (matchesTabState.filter === 'elim' && match.name.toLowerCase().includes('qual')) return false;
@@ -1606,6 +1751,7 @@ function Viewer() {
                                 <TeamList
                                     event={event}
                                     onTeamSelect={handleTeamSearch}
+                                    multiDivisionMode={multiDivisionMode}
                                     teams={teams}
                                     rankings={rankings}
                                     skills={skills}
