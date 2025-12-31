@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link, RotateCcw, Search, Globe } from 'lucide-react';
+import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link, RotateCcw, Search, Globe, Github } from 'lucide-react';
 import YouTube from 'react-youtube';
 import { format } from 'date-fns';
 import { useQueryState } from 'nuqs';
@@ -1213,6 +1213,15 @@ function Viewer() {
                 >
                     <Settings className="w-5 h-5 text-gray-300 hover:text-white" />
                 </button>
+                <a
+                    href="https://github.com/axcdeng/Live-viewer"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-3 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm"
+                    title="View on GitHub"
+                >
+                    <Github className="w-5 h-5 text-gray-300 hover:text-white" />
+                </a>
                 <div className="w-px h-8 bg-gray-800 self-center mx-1"></div>
                 <button
                     onClick={handleClearAll}
