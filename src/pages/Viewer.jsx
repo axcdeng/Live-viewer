@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link } from 'lucide-react';
+import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link, RotateCcw } from 'lucide-react';
 import YouTube from 'react-youtube';
 import { format } from 'date-fns';
 import { useQueryState } from 'nuqs';
@@ -97,6 +97,7 @@ function Viewer() {
     // Event Presets (Admin-defined routes)
     const [presets, setPresets] = useState([]);
     const [presetsLoading, setPresetsLoading] = useState(false);
+    const [selectedPresetSku, setSelectedPresetSku] = useState('');
 
     // Auto-collapse event search if event is already present from deep linking
     useEffect(() => {
@@ -619,6 +620,7 @@ function Viewer() {
     const handleLoadPreset = async (preset) => {
         setEventLoading(true);
         setError('');
+        setSelectedPresetSku(preset.sku);
         try {
             const foundEvent = await getEventBySku(preset.sku);
             setEvent(foundEvent);
@@ -811,6 +813,48 @@ function Viewer() {
         setSelectedMatchId(match.id);
     };
 
+    const handleClearAll = () => {
+        // Reset Data
+        setEvent(null);
+        setTeam(null);
+        setMatches([]);
+        setTeams([]);
+        setRankings([]);
+        setSkills([]);
+        setStreams([]);
+        setAllMatches([]);
+        setActiveStreamId(null);
+        setPlayers({});
+
+        // Reset Form/UI Inputs
+        setEventUrl('');
+        setTeamNumber('');
+        setSelectedMatchId(null);
+        setExpandedMatchId(null);
+        setError('');
+        setIsEventSearchCollapsed(false);
+        setNoWebcastsFound(false);
+        setWebcastCandidates([]);
+        setSelectedPresetSku('');
+
+        // Reset URL Parameters
+        setUrlSku(null);
+        setUrlTeam(null);
+        setUrlMatch(null);
+        setUrlVid(null);
+        setUrlLive(null);
+        setUrlVid1(null);
+        setUrlVid2(null);
+        setUrlVid3(null);
+        setUrlLive1(null);
+        setUrlLive2(null);
+        setUrlLive3(null);
+
+        // Reset Internal Refs/Flags
+        hasJumpedToMatch.current = false;
+        hasDeepLinked.current = false;
+    };
+
 
 
 
@@ -866,6 +910,14 @@ function Viewer() {
                     title="Settings"
                 >
                     <Settings className="w-5 h-5 text-gray-300 hover:text-white" />
+                </button>
+                <div className="w-px h-8 bg-gray-800 self-center mx-1"></div>
+                <button
+                    onClick={handleClearAll}
+                    className="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm group"
+                    title="Clear All"
+                >
+                    <RotateCcw className="w-5 h-5 text-red-400 group-hover:text-red-300" />
                 </button>
             </div>
 
@@ -1039,10 +1091,10 @@ function Viewer() {
                                                         const preset = presets.find(p => p.sku === e.target.value);
                                                         if (preset) handleLoadPreset(preset);
                                                     }}
-                                                    value={event?.sku || ''}
+                                                    value={selectedPresetSku}
                                                     className="w-full bg-black border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all appearance-none cursor-pointer hover:border-gray-600 shadow-inner"
                                                 >
-                                                    <option value="" disabled>Select an event...</option>
+                                                    <option value="">Select an event...</option>
                                                     {presets.map((p, idx) => (
                                                         <option key={idx} value={p.sku}>{p.label}</option>
                                                     ))}
@@ -1063,7 +1115,14 @@ function Viewer() {
                                             <input
                                                 type="text"
                                                 value={eventUrl}
-                                                onChange={(e) => setEventUrl(e.target.value)}
+                                                onChange={(e) => {
+                                                    const newUrl = e.target.value;
+                                                    setEventUrl(newUrl);
+                                                    // If manual input doesn't match selected preset SKU, reset dropdown
+                                                    if (selectedPresetSku && !newUrl.includes(selectedPresetSku)) {
+                                                        setSelectedPresetSku('');
+                                                    }
+                                                }}
                                                 placeholder="Paste RobotEvents URL..."
                                                 className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
                                                 onKeyDown={(e) => e.key === 'Enter' && handleEventSearch()}
