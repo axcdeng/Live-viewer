@@ -12,7 +12,9 @@
   "dependencies": {
     "@vercel/analytics": "^1.5.0",
     "@vercel/edge-config": "^1.4.3",
+    "@vercel/kv": "^3.0.0",
     "axios": "^1.6.0",
+    "cheerio": "^1.1.2",
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",
     "lucide-react": "^0.290.0",
