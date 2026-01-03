@@ -85,6 +85,7 @@ function Viewer() {
     const [webcastCandidates, setWebcastCandidates] = useState([]);
     const [showStreamSuccess, setShowStreamSuccess] = useState(false); // Popup state
     const [noWebcastsFound, setNoWebcastsFound] = useState(false);
+    const [isDetecting, setIsDetecting] = useState(false); // Prevent premature "no webcasts" message
 
     // URL search params for deep linking
     const [urlSku, setUrlSku] = useQueryState('sku');
@@ -538,6 +539,7 @@ function Viewer() {
     const initializeStreamsForEvent = async (eventData) => {
         setNoWebcastsFound(false);
         setWebcastCandidates([]);
+        setIsDetecting(true); // Mark detection as in progress
 
         const divisions = eventData.divisions && eventData.divisions.length > 0
             ? eventData.divisions
@@ -553,6 +555,8 @@ function Viewer() {
             setShowStreamSuccess(true);
             setTimeout(() => setShowStreamSuccess(false), 3000); // Hide after 3s
         }
+
+        setIsDetecting(false); // Detection complete
 
         // Auto-enable multi-division mode if more than 1 division exists
         const isMultiDiv = divisions.length > 1;
@@ -1518,7 +1522,7 @@ function Viewer() {
                                             canControl={!!players[activeStreamId]}
                                         />
                                     )}
-                                    {noWebcastsFound && (
+                                    {noWebcastsFound && !isDetecting && !showStreamSuccess && (
                                         <p className="text-yellow-500 text-xs text-center sm:text-left mt-2 animate-fade-in">
                                             No webcasts found automatically. Please paste the URL manually. <br className="sm:hidden" />
                                             Check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.
