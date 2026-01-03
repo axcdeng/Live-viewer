@@ -205,30 +205,14 @@ function StreamManager({
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {/* Main header row - everything on one line on large screens */}
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+                {/* Left side: Title + Toggle + Division Tabs */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0 flex-1">
                     <h3 className="text-white font-bold flex items-center gap-2 whitespace-nowrap">
                         <Tv className="w-5 h-5 text-[#4FCEEC]" />
                         Livestream URLs
                     </h3>
-
-                    {/* Division Switcher Tabs */}
-                    {multiDivisionMode && event?.divisions?.length > 1 && (
-                        <div className="flex flex-wrap gap-1 bg-black/40 p-1 rounded-lg border border-gray-800/50">
-                            {event.divisions.map((div) => (
-                                <button
-                                    key={div.id}
-                                    onClick={() => onActiveDivisionIdChange(div.id)}
-                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-wider ${activeDivisionId === div.id
-                                        ? 'bg-[#4FCEEC] text-black shadow-lg shadow-[#4FCEEC]/20'
-                                        : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-                                        }`}
-                                >
-                                    {div.name}
-                                </button>
-                            ))}
-                        </div>
-                    )}
 
                     {/* Multi-Division Toggle */}
                     {event?.divisions?.length > 1 && (
@@ -243,9 +227,28 @@ function StreamManager({
                             {multiDivisionMode ? 'DIVISIONS: ON' : 'DIVISIONS: OFF'}
                         </button>
                     )}
+
+                    {/* Division Switcher Tabs - inline but can wrap */}
+                    {multiDivisionMode && event?.divisions?.length > 1 && (
+                        <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-gray-800/50">
+                            {event.divisions.map((div) => (
+                                <button
+                                    key={div.id}
+                                    onClick={() => onActiveDivisionIdChange(div.id)}
+                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-wider whitespace-nowrap ${activeDivisionId === div.id
+                                        ? 'bg-[#4FCEEC] text-black shadow-lg shadow-[#4FCEEC]/20'
+                                        : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                                        }`}
+                                >
+                                    {div.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
+                {/* Right side: Controls - stays on the right */}
+                <div className="flex items-center gap-3 flex-shrink-0">
                     {/* Playback Controls */}
                     <div className="flex items-center gap-3">
                         {/* Playback Controls Container */}
@@ -333,7 +336,7 @@ function StreamManager({
                             className="text-xs px-3 py-1.5 bg-[#4FCEEC]/10 hover:bg-[#4FCEEC]/20 text-[#4FCEEC] border border-[#4FCEEC]/20 rounded-lg transition-colors flex items-center gap-1 shrink-0"
                         >
                             <Plus className="w-3.5 h-3.5" />
-                            Add Backup Stream
+                            Add Extra Stream
                         </button>
 
                         <style>{`
@@ -345,6 +348,13 @@ function StreamManager({
                             }
                             .animate-feedback-pill {
                                 animation: feedback-pill 1s ease-out forwards;
+                            }
+                            .scrollbar-hide {
+                                -ms-overflow-style: none;
+                                scrollbar-width: none;
+                            }
+                            .scrollbar-hide::-webkit-scrollbar {
+                                display: none;
                             }
                         `}</style>
                     </div>

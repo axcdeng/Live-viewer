@@ -4,6 +4,19 @@ import { format } from 'date-fns';
 import { getAllHistory, deleteHistoryEntry } from '../services/eventCache';
 import { getMatchDayIndex } from '../utils/streamMatching';
 
+// Safe date formatting helper
+const safeFormat = (dateValue, formatStr, fallback = 'Unknown') => {
+    try {
+        if (!dateValue) return fallback;
+        const date = new Date(dateValue);
+        if (isNaN(date.getTime())) return fallback;
+        return format(date, formatStr);
+    } catch (err) {
+        console.error('Date format error:', err, dateValue);
+        return fallback;
+    }
+};
+
 const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
     const [history, setHistory] = React.useState([]);
 
@@ -30,29 +43,39 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
     const validateStreamDate = (stream, eventStart, eventEnd) => {
         if (!stream.streamStartTime) return { valid: true };
 
-        const streamDate = new Date(stream.streamStartTime);
-        const eventStartDate = new Date(eventStart);
-        const eventEndDate = new Date(eventEnd);
+        try {
+            const streamDate = new Date(stream.streamStartTime);
+            const eventStartDate = new Date(eventStart);
+            const eventEndDate = new Date(eventEnd);
 
-        // Check if stream is within event date range
-        const streamDateOnly = streamDate.toISOString().split('T')[0];
-        const eventStartOnly = eventStartDate.toISOString().split('T')[0];
-        const eventEndOnly = eventEndDate.toISOString().split('T')[0];
+            // Check if dates are valid
+            if (isNaN(streamDate.getTime()) || isNaN(eventStartDate.getTime()) || isNaN(eventEndDate.getTime())) {
+                return { valid: true }; // Skip validation if dates are invalid
+            }
 
-        if (streamDateOnly < eventStartOnly || streamDateOnly > eventEndOnly) {
-            // Stream is outside event dates
-            // Check which day it would match
-            const matchedDayIndex = getMatchDayIndex(stream.streamStartTime, eventStart);
-            return {
-                valid: false,
-                streamDate: streamDateOnly,
-                matchedDayIndex,
-                isBeforeEvent: streamDateOnly < eventStartOnly,
-                isAfterEvent: streamDateOnly > eventEndOnly
-            };
+            // Check if stream is within event date range
+            const streamDateOnly = streamDate.toISOString().split('T')[0];
+            const eventStartOnly = eventStartDate.toISOString().split('T')[0];
+            const eventEndOnly = eventEndDate.toISOString().split('T')[0];
+
+            if (streamDateOnly < eventStartOnly || streamDateOnly > eventEndOnly) {
+                // Stream is outside event dates
+                // Check which day it would match
+                const matchedDayIndex = getMatchDayIndex(stream.streamStartTime, eventStart);
+                return {
+                    valid: false,
+                    streamDate: streamDateOnly,
+                    matchedDayIndex,
+                    isBeforeEvent: streamDateOnly < eventStartOnly,
+                    isAfterEvent: streamDateOnly > eventEndOnly
+                };
+            }
+
+            return { valid: true };
+        } catch (err) {
+            console.error('Error validating stream date:', err);
+            return { valid: true }; // Skip validation on error
         }
-
-        return { valid: true };
     };
 
     return (
@@ -103,7 +126,7 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                                                 </h3>
                                                 <p className="text-xs text-gray-500 font-mono">{entry.eventSku}</p>
                                                 <p className="text-sm text-gray-400 mt-1">
-                                                    {format(new Date(entry.eventStart), 'MMM d')} - {format(new Date(entry.eventEnd), 'MMM d, yyyy')}
+                                                    {safeFormat(entry.eventStart, 'MMM d')} - {safeFormat(entry.eventEnd, 'MMM d, yyyy')}
                                                 </p>
                                             </div>
                                             <button
@@ -133,7 +156,7 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                                                                 <p className="text-xs text-gray-500 truncate">{stream.url}</p>
                                                                 {warning && (
                                                                     <div className="mt-1 text-xs text-orange-400">
-                                                                        ⚠ Stream date mismatch: {format(new Date(stream.streamStartTime), 'MMM d, yyyy')}
+                                                                        ⚠ Stream date mismatch: {safeFormat(stream.streamStartTime, 'MMM d, yyyy')}
                                                                         {!warning.validation.isBeforeEvent && !warning.validation.isAfterEvent && (
                                                                             <span className="ml-1">
                                                                                 (Matches Day {warning.validation.matchedDayIndex + 1})
@@ -150,7 +173,7 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
 
                                         <div className="mt-3 pt-3 border-t border-gray-800 flex justify-between items-center">
                                             <span className="text-xs text-gray-500">
-                                                Last accessed {format(new Date(entry.lastAccessed), 'MMM d, h:mm a')}
+                                                Last accessed {safeFormat(entry.lastAccessed, 'MMM d, h:mm a')}
                                             </span>
                                             <span className="text-xs text-[#4FCEEC] opacity-0 group-hover:opacity-100 transition-opacity">
                                                 Click to load →

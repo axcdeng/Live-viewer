@@ -94,7 +94,7 @@ function Admin() {
 
             // Check for division mismatch if we already have manual divisions
             if (eventDivisions.length > 0 && apiDivisions.length > 0) {
-                const manualDivNames = eventDivisions.map(d => d.name.toLowerCase().trim());
+                const manualDivNames = eventDivisions.map(d => (d.name || '').toLowerCase().trim());
                 const apiDivNames = apiDivisions.map(d => d.name.toLowerCase().trim());
 
                 // Check if counts differ or names don't match
@@ -117,11 +117,13 @@ function Admin() {
             const mergedMultiStreams = {};
             apiDivisions.forEach((apiDiv, apiIdx) => {
                 // Try to find matching manual division by name
-                const matchingManual = eventDivisions.find(d =>
-                    d.name.toLowerCase().trim() === apiDiv.name.toLowerCase().trim() ||
-                    d.name.toLowerCase().includes(apiDiv.name.toLowerCase()) ||
-                    apiDiv.name.toLowerCase().includes(d.name.toLowerCase())
-                );
+                const matchingManual = eventDivisions.find(d => {
+                    const dName = (d.name || '').toLowerCase().trim();
+                    const apiName = (apiDiv.name || '').toLowerCase().trim();
+                    return dName === apiName ||
+                        dName.includes(apiName) ||
+                        apiName.includes(dName);
+                });
 
                 // Try by position as fallback
                 const positionMatch = eventDivisions[apiIdx];
@@ -522,7 +524,7 @@ function Admin() {
                                                         : 'text-gray-500 hover:text-gray-300'
                                                         }`}
                                                 >
-                                                    {div.name.split(' ')[0]}
+                                                    {(div.name || `Div ${div.id}`).split(' ')[0]}
                                                 </button>
                                             ))}
                                         </div>

@@ -842,7 +842,7 @@ function Viewer() {
 
             if (presetDivisionNames && preset.streams && typeof preset.streams === 'object' && !Array.isArray(preset.streams)) {
                 const presetDivIds = Object.keys(presetDivisionNames);
-                const apiDivNames = divisions.map(d => d.name.toLowerCase().trim());
+                const apiDivNames = divisions.map(d => (d.name || '').toLowerCase().trim());
 
                 // Check if we need remapping (IDs don't directly match)
                 const needsRemapping = divisions.some(apiDiv => !preset.streams[apiDiv.id]);
@@ -857,8 +857,8 @@ function Viewer() {
                         let matchingPresetId = null;
 
                         for (const presetDivId of presetDivIds) {
-                            const presetName = presetDivisionNames[presetDivId]?.toLowerCase().trim() || '';
-                            const apiName = apiDiv.name.toLowerCase().trim();
+                            const presetName = (presetDivisionNames[presetDivId] || '').toLowerCase().trim();
+                            const apiName = (apiDiv.name || '').toLowerCase().trim();
 
                             // Check for exact match, contains, or is contained by
                             if (presetName === apiName ||
@@ -1719,7 +1719,7 @@ function Viewer() {
                                                 type="text"
                                                 value={teamNumber}
                                                 onChange={(e) => setTeamNumber(e.target.value)}
-                                                placeholder="Team number (e.g., 11574A)"
+                                                placeholder="Team number (e.g., 8977A)"
                                                 className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
                                                 onKeyDown={(e) => e.key === 'Enter' && handleTeamSearch()}
                                             />
