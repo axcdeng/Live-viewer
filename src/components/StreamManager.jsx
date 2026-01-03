@@ -131,12 +131,18 @@ function StreamManager({
                     setErrors(prev => ({ ...prev, [stream.id]: null }));
 
                     try {
-                        const startTime = await getStreamStartTime(stream.videoId);
-                        if (startTime) {
+                        const result = await getStreamStartTime(stream.videoId);
+                        if (result && result.status === 'started' && result.startTime) {
                             updateStream(stream.id, {
-                                streamStartTime: new Date(startTime).getTime()
+                                streamStartTime: new Date(result.startTime).getTime()
                             });
                             setErrors(prev => ({ ...prev, [stream.id]: null }));
+                        } else if (result && result.status === 'scheduled') {
+                            // Stream is scheduled but not started yet
+                            setErrors(prev => ({
+                                ...prev,
+                                [stream.id]: 'This livestream has not started yet.'
+                            }));
                         } else {
                             // Stream start time not available
                             setErrors(prev => ({

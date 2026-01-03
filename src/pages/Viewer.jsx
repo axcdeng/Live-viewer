@@ -116,6 +116,7 @@ function Viewer() {
     // Multi-Division State
     const [multiDivisionMode, setMultiDivisionMode] = useState(false);
     const [activeDivisionId, setActiveDivisionId] = useState(null);
+    const [divisionsFromPreset, setDivisionsFromPreset] = useState(false); // True if divisions came from preset, not API
 
     // Logic to prevent scrolling when event search is collapsed is handled by layout
     useEffect(() => {
@@ -824,20 +825,51 @@ function Viewer() {
         setUrlLive2(null);
         setUrlLive3(null);
         try {
-            const foundEvent = await getEventBySku(preset.sku);
+            let foundEvent = await getEventBySku(preset.sku);
             setEvent(foundEvent);
             // Correct the robotevents URL format
             setEventUrl(`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${preset.sku}.html`);
 
             const days = calculateEventDays(foundEvent.start, foundEvent.end);
-            const divisions = foundEvent.divisions && foundEvent.divisions.length > 0
-                ? foundEvent.divisions
-                : [{ id: 1, name: 'Default Division' }];
+
+            // Check if preset has manually defined divisions
+            const presetDivisionNames = preset.divisionNames || null;
+            const apiHasDivisions = foundEvent.divisions && foundEvent.divisions.length > 1;
+
+            let divisions;
+            let usingPresetDivisions = false;
+
+            if (apiHasDivisions) {
+                // API has real divisions, use them
+                divisions = foundEvent.divisions;
+                usingPresetDivisions = false;
+            } else if (presetDivisionNames && Object.keys(presetDivisionNames).length > 0) {
+                // API has no/single division, but preset has manually defined divisions - use preset
+                divisions = Object.keys(presetDivisionNames).map(id => ({
+                    id: parseInt(id) || id,
+                    name: presetDivisionNames[id]
+                }));
+                usingPresetDivisions = true;
+                console.log('[PRESET LOAD] Using preset-defined divisions:', divisions);
+            } else {
+                // Fallback to default single division
+                divisions = foundEvent.divisions && foundEvent.divisions.length > 0
+                    ? foundEvent.divisions
+                    : [{ id: 1, name: 'Default Division' }];
+                usingPresetDivisions = false;
+            }
+
+            setDivisionsFromPreset(usingPresetDivisions);
+
+            // If using preset divisions, update the event object so division tabs work
+            if (usingPresetDivisions) {
+                foundEvent = { ...foundEvent, divisions };
+                setEvent(foundEvent);
+            }
 
             const newStreams = [];
 
             // Check if we need to remap divisions (preset has divisionNames that don't match API)
-            const presetDivisionNames = preset.divisionNames || null;
             let divisionMapping = null; // Map from API divisionId to preset divisionId
 
             if (presetDivisionNames && preset.streams && typeof preset.streams === 'object' && !Array.isArray(preset.streams)) {
@@ -2187,6 +2219,7 @@ function Viewer() {
                                         rankings={rankings}
                                         skills={skills}
                                         loading={rankingsLoading}
+                                        divisionsFromPreset={divisionsFromPreset}
                                     />
                                 ) : (
                                     // Global Team Search View (No Event Loaded)

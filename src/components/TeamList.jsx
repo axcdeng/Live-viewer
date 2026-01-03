@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Trophy, Medal, Globe, Loader, Search } from 'lucide-react';
+import { Users, Trophy, Medal, Globe, Loader, Search, AlertTriangle } from 'lucide-react';
 import { getTeamsForEvent, getRankingsForEvent, getSkillsForEvent, getWorldSkillsForTeams } from '../services/robotevents';
 
-const TeamList = ({ event, onTeamSelect, multiDivisionMode }) => {
+const TeamList = ({ event, onTeamSelect, multiDivisionMode, divisionsFromPreset }) => {
     const [teams, setTeams] = useState([]);
     const [rankings, setRankings] = useState({});
     const [skills, setSkills] = useState({});
@@ -243,6 +243,17 @@ const TeamList = ({ event, onTeamSelect, multiDivisionMode }) => {
                     </button>
                 </div>
             </div>
+
+            {/* Divisions from Preset Disclaimer */}
+            {divisionsFromPreset && (
+                <div className="mx-2 mt-2 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-orange-300">
+                        <span className="font-bold">Divisions not yet published.</span>
+                        <span className="text-orange-400/80 ml-1">The official division assignments are not available from RobotEvents yet. Division filters may not work correctly until they are released.</span>
+                    </div>
+                </div>
+            )}
 
             {/* Team List */}
             <div className="overflow-y-auto p-2 space-y-2 h-[600px]">

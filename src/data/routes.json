@@ -23,5 +23,24 @@
                 "8F_WaGBRphE"
             ]
         }
+    },
+    {
+        "label": "Sugar Rush (HS)",
+        "path": "sugarrush",
+        "sku": "RE-V5RC-25-9947",
+        "streams": {
+            "1": [
+                "fQoOJ_XyslE",
+                "m_J74mfy9Uc"
+            ],
+            "2": [
+                "DdNA056CZXg",
+                "wUcZTarU7ys"
+            ]
+        },
+        "divisionNames": {
+            "1": "Sweets",
+            "2": "Treats"
+        }
     }
 ]

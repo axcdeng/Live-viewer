@@ -11,7 +11,7 @@ export default function WordPressHeader() {
     const { logoUrl, navLinks } = headerData;
 
     return (
-        <nav className="w-full px-4 sm:px-8 py-4 flex items-center justify-between">
+        <nav className="w-full px-4 sm:px-8 py-2 flex items-center justify-between">
             {/* Logo */}
             <a
                 href="https://robostem.org"
@@ -23,7 +23,7 @@ export default function WordPressHeader() {
                     <img
                         src={logoUrl}
                         alt="robostem"
-                        className="h-12 w-auto"
+                        className="h-10 w-auto"
                     />
                 ) : (
                     <span className="text-lg font-bold text-white">robostem</span>

@@ -24,8 +24,26 @@ export const getStreamStartTime = async (videoId) => {
         });
 
         const items = response.data.items;
-        if (items.length > 0 && items[0].liveStreamingDetails && items[0].liveStreamingDetails.actualStartTime) {
-            return items[0].liveStreamingDetails.actualStartTime;
+        if (items.length > 0 && items[0].liveStreamingDetails) {
+            const details = items[0].liveStreamingDetails;
+
+            // Stream has actually started
+            if (details.actualStartTime) {
+                return {
+                    startTime: details.actualStartTime,
+                    status: 'started',
+                    scheduledTime: details.scheduledStartTime || null
+                };
+            }
+
+            // Stream is scheduled but not started yet
+            if (details.scheduledStartTime) {
+                return {
+                    startTime: null,
+                    status: 'scheduled',
+                    scheduledTime: details.scheduledStartTime
+                };
+            }
         }
     } catch (error) {
         console.error("Error fetching YouTube stream details:", error);
