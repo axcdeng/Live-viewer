@@ -143,7 +143,7 @@ function Viewer() {
     // Multi-stream support
     const [streams, setStreams] = useState([]);
     const [activeStreamId, setActiveStreamId] = useState(null);
-    const [players, setPlayers] = {};
+    const [players, setPlayers] = useState({});
 
     // Loading states
     const [eventLoading, setEventLoading] = useState(false);
