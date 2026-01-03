@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList, RefreshCw, Layout, AlertCircle } from 'lucide-react';
+import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList, RefreshCw, Layout, AlertCircle, Globe } from 'lucide-react';
 import { getEventBySku } from '../services/robotevents';
 import { calculateEventDays } from '../utils/streamMatching';
 import { extractVideoId } from '../services/youtube';
@@ -38,6 +38,12 @@ function Admin() {
     const [eventDivisions, setEventDivisions] = useState([]);
     const [divisionMismatchWarning, setDivisionMismatchWarning] = useState(null);
 
+    // Header Management State
+    const [showHeaderSection, setShowHeaderSection] = useState(false);
+    const [headerVersions, setHeaderVersions] = useState([]);
+    const [isFetchingHeader, setIsFetchingHeader] = useState(false);
+    const [headerCopied, setHeaderCopied] = useState(false);
+
     useEffect(() => {
         const sessionAuth = sessionStorage.getItem('adminAuth');
         if (sessionAuth === 'true') {
@@ -45,6 +51,16 @@ function Admin() {
         }
 
         fetchRoutes();
+
+        // Load header versions from localStorage
+        const savedVersions = localStorage.getItem('admin_header_versions');
+        if (savedVersions) {
+            try {
+                setHeaderVersions(JSON.parse(savedVersions));
+            } catch (e) {
+                console.error('Error parsing header versions:', e);
+            }
+        }
     }, []);
 
     const fetchRoutes = async () => {
@@ -346,6 +362,130 @@ function Admin() {
             sku: '',
             streams: [''],
             multiStreams: null
+        });
+    };
+
+    // Header Management Functions
+    const fetchHeaderFromWordPress = async () => {
+        setIsFetchingHeader(true);
+        try {
+            // Use corsproxy.io for more reliable CORS handling
+            const corsProxy = 'https://corsproxy.io/?';
+            const targetUrl = encodeURIComponent('https://robostem.org');
+            const response = await fetch(`${corsProxy}${targetUrl}`);
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch: ${response.status}`);
+            }
+
+            const html = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            // Extract logo
+            let logoUrl = '';
+            const logoImg = doc.querySelector('header img, .logo img, nav img');
+            if (logoImg) {
+                let logoSrc = logoImg.getAttribute('src');
+                if (logoSrc && logoSrc.startsWith('/')) {
+                    logoSrc = `https://robostem.org${logoSrc}`;
+                }
+                logoUrl = logoSrc;
+            }
+
+            // Extract navigation links
+            const links = [];
+            const navItems = doc.querySelectorAll('nav a, header a, .menu a');
+            navItems.forEach(link => {
+                const text = link.textContent.trim();
+                const href = link.getAttribute('href');
+
+                if (text && href &&
+                    (text.toUpperCase() === 'HOW' ||
+                        text.toUpperCase() === 'WHAT' ||
+                        text.toUpperCase() === 'WHO' ||
+                        text.includes('Contact') ||
+                        text.includes('Join'))) {
+
+                    let absoluteHref = href;
+                    if (href.startsWith('/')) {
+                        absoluteHref = `https://robostem.org${href}`;
+                    } else if (href.startsWith('#')) {
+                        absoluteHref = `https://robostem.org${href}`;
+                    }
+                    links.push({ text, href: absoluteHref });
+                }
+            });
+
+            // Deduplicate
+            const uniqueLinks = [];
+            const seen = new Set();
+            links.forEach(link => {
+                if (!seen.has(link.text)) {
+                    seen.add(link.text);
+                    uniqueLinks.push(link);
+                }
+            });
+
+            // Create new version
+            const newVersion = {
+                id: Date.now(),
+                name: `Version ${new Date().toLocaleDateString()}`,
+                timestamp: new Date().toISOString(),
+                logoUrl,
+                navLinks: uniqueLinks,
+                isLive: false
+            };
+
+            // Save to versions
+            const updatedVersions = [newVersion, ...headerVersions];
+            setHeaderVersions(updatedVersions);
+            localStorage.setItem('admin_header_versions', JSON.stringify(updatedVersions));
+
+            setSuccessMessage('New header version fetched from robostem.org!');
+            setTimeout(() => setSuccessMessage(''), 3000);
+
+        } catch (err) {
+            console.error('Error fetching WordPress header:', err);
+            setError('Failed to fetch header from robostem.org');
+            setTimeout(() => setError(''), 3000);
+        } finally {
+            setIsFetchingHeader(false);
+        }
+    };
+
+    const updateVersionName = (versionId, newName) => {
+        const updated = headerVersions.map(v =>
+            v.id === versionId ? { ...v, name: newName } : v
+        );
+        setHeaderVersions(updated);
+        localStorage.setItem('admin_header_versions', JSON.stringify(updated));
+    };
+
+    const deleteHeaderVersion = (versionId) => {
+        if (confirm('Delete this header version?')) {
+            const updated = headerVersions.filter(v => v.id !== versionId);
+            setHeaderVersions(updated);
+            localStorage.setItem('admin_header_versions', JSON.stringify(updated));
+        }
+    };
+
+    const copyHeaderPrompt = (version) => {
+        const prompt = `Update the header in src/data/headerData.js to use this version:
+
+\`\`\`javascript
+export const headerData = {
+    logoUrl: '/logo.png',
+    navLinks: ${JSON.stringify(version.navLinks, null, 8)},
+    lastUpdated: '${new Date().toISOString().split('T')[0]}'
+};
+\`\`\`
+
+This was requested via Admin > Header Management > "Show to all users" for version "${version.name}"`;
+
+        navigator.clipboard.writeText(prompt).then(() => {
+            setHeaderCopied(true);
+            setTimeout(() => setHeaderCopied(false), 2000);
         });
     };
 
@@ -805,6 +945,117 @@ function Admin() {
                                     </div>
                                 </div>
                             ))
+                        )}
+                    </div>
+
+                    {/* Header Management Section */}
+                    <div className="pt-8 mt-8 border-t border-gray-800">
+                        <button
+                            onClick={() => setShowHeaderSection(!showHeaderSection)}
+                            className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-200 transition-colors uppercase tracking-widest font-bold"
+                        >
+                            {showHeaderSection ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            <Globe className="w-4 h-4" />
+                            WordPress Header Management
+                        </button>
+
+                        {showHeaderSection && (
+                            <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                {/* Refresh Button */}
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={fetchHeaderFromWordPress}
+                                        disabled={isFetchingHeader}
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${isFetchingHeader
+                                            ? 'bg-gray-700 text-gray-400 cursor-wait'
+                                            : 'bg-[#4FCEEC]/20 text-[#4FCEEC] hover:bg-[#4FCEEC]/30 border border-[#4FCEEC]/30'
+                                            }`}
+                                    >
+                                        <RefreshCw className={`w-4 h-4 ${isFetchingHeader ? 'animate-spin' : ''}`} />
+                                        {isFetchingHeader ? 'Fetching...' : 'Fetch from robostem.org'}
+                                    </button>
+                                    <span className="text-xs text-gray-500">
+                                        Creates a new version from the live WordPress site
+                                    </span>
+                                </div>
+
+                                {/* Copied feedback */}
+                                {headerCopied && (
+                                    <div className="flex items-center gap-2 text-green-400 bg-green-500/10 border border-green-500/50 p-3 rounded-lg text-xs font-bold animate-in fade-in">
+                                        <Check className="w-4 h-4" />
+                                        Prompt copied! Paste it to request the header update.
+                                    </div>
+                                )}
+
+                                {/* Version List */}
+                                {headerVersions.length === 0 ? (
+                                    <div className="text-center py-8 text-gray-500">
+                                        <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                        <p className="text-sm">No header versions yet.</p>
+                                        <p className="text-xs text-gray-600 mt-1">Click "Fetch from robostem.org" to create the first version.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {headerVersions.map((version) => (
+                                            <div
+                                                key={version.id}
+                                                className="bg-black border border-gray-800 rounded-xl p-4"
+                                            >
+                                                <div className="flex items-start justify-between gap-3 mb-3">
+                                                    <div className="flex-1">
+                                                        <input
+                                                            type="text"
+                                                            value={version.name}
+                                                            onChange={(e) => updateVersionName(version.id, e.target.value)}
+                                                            className="bg-transparent text-white font-bold text-sm border-none outline-none w-full focus:text-[#4FCEEC]"
+                                                        />
+                                                        <p className="text-[10px] text-gray-500 mt-1">
+                                                            Created: {new Date(version.timestamp).toLocaleString()}
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => copyHeaderPrompt(version)}
+                                                            className="px-3 py-1.5 bg-[#4FCEEC] text-black font-bold text-xs rounded-lg hover:bg-[#3db8d6] transition-colors"
+                                                        >
+                                                            Show to all users
+                                                        </button>
+                                                        <button
+                                                            onClick={() => deleteHeaderVersion(version.id)}
+                                                            className="p-1.5 text-gray-600 hover:text-red-400 transition-colors"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Preview - matches actual header layout */}
+                                                <div className="bg-gray-900/50 rounded-lg p-3">
+                                                    <div className="flex items-center justify-between">
+                                                        {version.logoUrl && (
+                                                            <img src={version.logoUrl} alt="Logo" className="h-6" />
+                                                        )}
+                                                        <div className="flex items-center gap-4 text-[11px]">
+                                                            {version.navLinks.map((link, i) => {
+                                                                const isContact = link.text.includes('Contact') || link.text.includes('Join');
+                                                                return isContact ? (
+                                                                    <span key={i} className="px-2 py-1 bg-white/10 border border-white/20 rounded text-gray-300 text-[10px]">
+                                                                        {link.text}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span key={i} className="text-gray-400 uppercase tracking-wide">
+                                                                        {link.text}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         )}
                     </div>
 
