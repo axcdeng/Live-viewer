@@ -18,7 +18,8 @@ import {
     getRankingsForEvent,
     getSkillsForEvent,
     getEventsForTeam,
-    getActiveSeasons
+    getActiveSeasons,
+    searchEvents
 } from '../services/robotevents';
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
 import { findWebcastCandidates } from '../services/webcastDetection';
@@ -117,6 +118,11 @@ function Viewer() {
     // Form inputs
     const [eventUrl, setEventUrl] = useState('');
     const [teamNumber, setTeamNumber] = useState('');
+
+    // Search State
+    const [searchResults, setSearchResults] = useState([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [showSearchResults, setShowSearchResults] = useState(false);
 
     // UI State
     /** @type {'search' | 'list' | 'matches'} */
@@ -598,12 +604,7 @@ function Viewer() {
         }
     }, [streams, activeStreamId]);
 
-    const handleEventSearch = async () => {
-        if (!eventUrl.trim()) {
-            setError('Please enter an event URL');
-            return;
-        }
-
+    const loadEvent = async (sku) => {
         isInternalLoading.current = true;
         setEventLoading(true);
         setError('');
@@ -612,11 +613,6 @@ function Viewer() {
         urlPresetRef.current = null; // Sync ref immediately
 
         try {
-            const skuMatch = eventUrl.match(/(RE-[A-Z0-9]+-\d{2}-\d{4})/);
-            if (!skuMatch) {
-                throw new Error('Invalid RobotEvents URL. Could not find SKU.');
-            }
-            const sku = skuMatch[1];
             setUrlSku(sku); // Set SKU immediately
             const foundEvent = await getEventBySku(sku);
 
@@ -661,8 +657,6 @@ function Viewer() {
                     idx === 0 ? { ...s, url: cached.url, videoId: cached.videoId } : s
                 ));
             }
-
-
         } catch (err) {
             setError(err.message);
         } finally {
@@ -670,6 +664,59 @@ function Viewer() {
             if (!error) setIsEventSearchCollapsed(true);
             setTimeout(() => { isInternalLoading.current = false; }, 1000);
         }
+    };
+
+    const performSearch = async (query) => {
+        if (!query.trim()) {
+            setSearchResults([]);
+            setShowSearchResults(false);
+            return;
+        }
+
+        setIsSearching(true);
+        try {
+            const results = await searchEvents(query);
+            setSearchResults(results);
+            setShowSearchResults(true); // Always show, empty list handling in UI if needed
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    // Debounced Search Effect
+    useEffect(() => {
+        // Don't auto-search if deep linking or if it looks like a SKU (let user finish typing or hit enter for SKU)
+        if (isDeepLinking || !eventUrl.trim()) return;
+
+        const timer = setTimeout(() => {
+            // Check if it matches SKU pattern to avoid searching for partial SKUs unnecessarily?
+            // Actually, we WANT to search names. SKU detection happens on 'Enter' or click.
+            // If it IS a SKU, performSearch will return it as a result anyway (searchEvents handles SKU).
+            performSearch(eventUrl);
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [eventUrl, isDeepLinking]);
+
+    const handleEventSearch = async () => {
+        if (!eventUrl.trim()) {
+            setError('Please enter an event URL or search term');
+            return;
+        }
+
+        setShowSearchResults(false);
+
+        // Check for SKU pattern match first for direct load
+        const skuMatch = eventUrl.match(/(RE-[A-Z0-9]+-\d{2}-\d{4})/);
+        if (skuMatch) {
+            await loadEvent(skuMatch[1]);
+            return;
+        }
+
+        // Force immediate search if not SKU
+        performSearch(eventUrl);
     };
 
     const handleWebcastSelect = (selectedVideoId, selectedUrl, method) => {
@@ -1593,7 +1640,7 @@ function Viewer() {
                     {/* Right Column: Controls */}
                     <div className="xl:col-span-4 flex flex-col gap-4">
                         {/* Event Search Section */}
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex-shrink-0">
+                        <div className="bg-gray-900 border border-gray-800 rounded-xl flex-shrink-0">
                             <button
                                 onClick={() => setIsEventSearchCollapsed(!isEventSearchCollapsed)}
                                 className="w-full p-4 flex justify-between items-center hover:bg-gray-800/50 transition-colors"
@@ -1645,9 +1692,9 @@ function Viewer() {
                                     <div className="space-y-2">
                                         <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">
                                             <Link className="w-3 h-3 text-gray-500" />
-                                            Search by URL
+                                            Search Event
                                         </label>
-                                        <div className="flex gap-2">
+                                        <div className="flex gap-2 relative">
                                             <input
                                                 type="text"
                                                 value={eventUrl}
@@ -1657,18 +1704,46 @@ function Viewer() {
                                                     // If input changes, we are no longer strictly following the preset
                                                     if (urlPreset) setUrlPreset(null);
                                                     if (selectedPresetSku) setSelectedPresetSku('');
+                                                    if (showSearchResults) setShowSearchResults(false);
                                                 }}
-                                                placeholder="Paste RobotEvents URL..."
+                                                placeholder="Paste RobotEvents URL or Search..."
                                                 className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
                                                 onKeyDown={(e) => e.key === 'Enter' && handleEventSearch()}
                                             />
                                             <button
                                                 onClick={handleEventSearch}
-                                                disabled={eventLoading}
+                                                disabled={eventLoading || isSearching}
                                                 className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2"
                                             >
-                                                {eventLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
+                                                {eventLoading || isSearching ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
                                             </button>
+
+                                            {/* Search Results Dropdown */}
+                                            {showSearchResults && searchResults.length > 0 && (
+                                                <div className="absolute top-full left-0 right-0 z-50 bg-gray-900 border border-gray-700 rounded-b-lg shadow-xl mt-1 max-h-60 overflow-y-auto">
+                                                    {searchResults.map((evt) => (
+                                                        <button
+                                                            key={evt.id}
+                                                            onClick={() => {
+                                                                setEventUrl(`https://www.robotevents.com/${evt.sku}.html`);
+                                                                loadEvent(evt.sku);
+                                                                setShowSearchResults(false);
+                                                            }}
+                                                            className="w-full text-left p-3 hover:bg-gray-800 border-b border-gray-800 last:border-0 transition-colors"
+                                                        >
+                                                            <div className="font-bold text-white text-sm line-clamp-1">{evt.name}</div>
+                                                            <div className="flex justify-between items-center mt-1">
+                                                                <span className="text-xs text-gray-400">
+                                                                    {evt.location?.city}{evt.location?.region ? `, ${evt.location.region}` : ''}
+                                                                </span>
+                                                                <span className="text-xs text-gray-500">
+                                                                    {format(new Date(evt.start), 'MMM d, yyyy')}
+                                                                </span>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -2508,7 +2583,7 @@ function Viewer() {
                 />
 
                 {/* Copyright Footer */}
-                <footer className="fixed bottom-4 right-4 text-xs text-slate-400 text-center sm:text-right max-w-xs sm:max-w-2xl">
+                <footer className="fixed bottom-4 right-4 text-xs text-slate-400 text-center sm:text-right max-w-xs sm:max-w-2xl hidden sm:block">
                     <p className="bg-slate-900/80 backdrop-blur-sm px-4 py-2 rounded-lg border border-slate-700/50">
                         © 2025 RoboSTEM Foundation |{' '}
                         <a
