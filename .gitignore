@@ -31,3 +31,4 @@ yarn-error.log*
 
 # Agent workflows
 .agent
+.claude

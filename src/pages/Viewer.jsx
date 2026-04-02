@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link, RotateCcw, Search, Globe, Github, CheckCircle2, Share2 } from 'lucide-react';
+import { Settings, Play, RefreshCw, Loader, History, AlertCircle, X, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link, RotateCcw, Search, Globe, Github, CheckCircle2, Share2, ArrowUpRight } from 'lucide-react';
 import YouTube from 'react-youtube';
 import { format } from 'date-fns';
 import { useQueryState } from 'nuqs';
@@ -1378,8 +1378,40 @@ function Viewer() {
         );
     };
 
+    const [showAppBanner, setShowAppBanner] = React.useState(true);
+
+    const dismissBanner = () => {
+        setShowAppBanner(false);
+    };
+
     return (
         <div className="min-h-screen bg-black text-white font-sans selection:bg-[#4FCEEC] selection:text-black flex flex-col">
+            {/* iOS App CTA Banner */}
+            {showAppBanner && (
+                <div className="relative bg-gray-900/80 border-b border-gray-800 flex-shrink-0">
+                    <div className="px-10 py-2.5 flex items-center justify-center">
+                        <span className="text-sm font-light text-gray-300">
+                            <a
+                                href="https://apps.apple.com/us/app/streamhop-vex-match-jumper/id6759777314"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#4FCEEC] hover:underline inline-flex items-center gap-1"
+                            >
+                                VEX Jumper is on iOS <ArrowUpRight className="w-3.5 h-3.5" />
+                            </a>
+                            {' '}— no more typing URLs at events. Jump to matches right from your phone.
+                        </span>
+                    </div>
+                    <button
+                        onClick={dismissBanner}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
+                        aria-label="Dismiss"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+
             {/* WordPress Header */}
             <header className="bg-gray-900 border-b border-gray-800 z-50 backdrop-blur-md bg-opacity-80 flex-shrink-0">
                 <WordPressHeader />
