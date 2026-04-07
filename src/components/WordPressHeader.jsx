@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
 import { headerData } from '../data/headerData';
 
 /**
@@ -9,6 +10,7 @@ import { headerData } from '../data/headerData';
 export default function WordPressHeader() {
     const { logoUrl, navLinks } = headerData;
     const [openDropdown, setOpenDropdown] = useState(null);
+    const location = useLocation();
 
     return (
         <nav className="w-full px-4 sm:px-8 py-2 flex items-center justify-between">
@@ -32,6 +34,16 @@ export default function WordPressHeader() {
 
             {/* Navigation Links */}
             <nav className="hidden md:flex items-center gap-6">
+                <Link
+                    to="/worlds"
+                    className={`px-4 py-2 rounded-lg font-medium transition-all border text-sm ${
+                        location.pathname === '/worlds'
+                            ? 'bg-[#4FCEEC] text-black border-[#4FCEEC]'
+                            : 'bg-[#4FCEEC]/10 hover:bg-[#4FCEEC]/20 text-[#4FCEEC] border-[#4FCEEC]/30'
+                    }`}
+                >
+                    Worlds
+                </Link>
                 {navLinks.map((link, index) => {
                     const isContactLink = link.text.includes('Contact') || link.text.includes('Join');
                     const hasChildren = link.children && link.children.length > 0;
