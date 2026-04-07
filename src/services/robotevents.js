@@ -313,6 +313,47 @@ export const getActiveSeasons = async () => {
     }
 };
 
+// Search for a VEX Worlds Championship event by program and year.
+// Used by the Worlds page to load the correct RobotEvents event without
+// requiring a hardcoded SKU. Falls back gracefully if not found.
+export const findWorldsEvent = async (program, year) => {
+    const client = getClient();
+    try {
+        const res = await client.get('/events', {
+            params: {
+                start: `${year}-04-01`,
+                end:   `${year}-06-15`,
+                per_page: 50,
+            },
+        });
+
+        const events = res.data.data ?? [];
+        const isHS = program === 'V5RC HS';
+
+        // Filter to VRC/V5RC world-level events only
+        const worldEvents = events.filter((e) => {
+            const name = e.name.toLowerCase();
+            const code = (e.program?.code ?? '').toUpperCase();
+            const isVRC = code === 'VRC' || code === 'V5RC';
+            return isVRC && name.includes('world');
+        });
+
+        if (!worldEvents.length) return null;
+
+        // Prefer grade-specific match when multiple events are present
+        for (const e of worldEvents) {
+            const name = e.name.toLowerCase();
+            if (isHS && (name.includes('high school') || !name.includes('middle'))) return e;
+            if (!isHS && (name.includes('middle school') || name.includes(' ms'))) return e;
+        }
+
+        return worldEvents[0];
+    } catch (err) {
+        console.warn('[findWorldsEvent] failed:', err.message);
+        return null;
+    }
+};
+
 export const getEventsForTeam = async (teamId, seasonIds = null) => {
     const client = getClient();
     try {
