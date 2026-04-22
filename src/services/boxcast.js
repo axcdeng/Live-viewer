@@ -5,33 +5,40 @@
 //   2. groupBroadcasts(broadcasts, divisionNames) → keyed by "DivName-DayN"
 //   3. resolveBroadcast(grouped, divName, dayIndex, overrides) → single broadcast
 
-const API_BASE = import.meta.env.DEV ? 'http://localhost:3000' : '';
 const BOXCAST_API = 'https://api.boxcast.com';
+const DEV_BOXCAST_PROXY = '/__boxcast';
 
 export async function fetchChannelBroadcasts(channelId, year) {
     const params = new URLSearchParams({ channelId });
     if (year) params.set('year', year);
 
-    // 1. Try the Vercel proxy (production + vercel dev)
-    try {
-        const res = await fetch(`${API_BASE}/api/worlds-broadcasts?${params}`);
-        if (res.ok) {
-            const data = await res.json();
-            return Array.isArray(data) ? data : [];
+    const requestPath = `/channels/${channelId}/broadcasts?l=100`;
+    const urlsToTry = [];
+
+    if (import.meta.env.DEV) {
+        urlsToTry.push(`${DEV_BOXCAST_PROXY}${requestPath}`);
+    }
+
+    const proxyUrl = getBroadcastProxyUrl(params);
+    if (proxyUrl) {
+        urlsToTry.push(proxyUrl);
+    }
+
+    urlsToTry.push(`${BOXCAST_API}${requestPath}`);
+
+    let lastError = null;
+
+    for (const url of [...new Set(urlsToTry)]) {
+        try {
+            let data = await fetchJson(url);
+            if (year) data = data.filter((bc) => bc.starts_at?.startsWith(year));
+            return data;
+        } catch (error) {
+            lastError = error;
         }
-    } catch (_) { /* proxy not running – fall through */ }
+    }
 
-    // 2. Direct BoxCast API (works in plain vite dev if BoxCast allows CORS)
-    const bcRes = await fetch(
-        `${BOXCAST_API}/channels/${channelId}/broadcasts?l=100`,
-        { headers: { Accept: 'application/json' } }
-    );
-    if (!bcRes.ok) throw new Error(`BoxCast API returned ${bcRes.status}`);
-
-    let data = await bcRes.json();
-    if (!Array.isArray(data)) data = data.data ?? [];
-    if (year) data = data.filter((bc) => bc.starts_at?.startsWith(year));
-    return data;
+    throw lastError ?? new Error('Failed to fetch BoxCast broadcasts');
 }
 
 // ---------------------------------------------------------------------------
@@ -115,12 +122,27 @@ export async function fetchBroadcastPlaylist(broadcastId, channelId) {
         host: 'jumper.robostem.org',
         extended: 'true',
     });
-    const res = await fetch(
-        `${BOXCAST_API}/broadcasts/${broadcastId}/view?${params}`,
-        { headers: { Accept: 'application/json' } }
-    );
-    if (!res.ok) throw new Error(`BoxCast view API returned ${res.status}`);
-    return await res.json(); // { status, playlist, progress, settings, ... }
+
+    const requestPath = `/broadcasts/${broadcastId}/view?${params}`;
+    const urlsToTry = [];
+
+    if (import.meta.env.DEV) {
+        urlsToTry.push(`${DEV_BOXCAST_PROXY}${requestPath}`);
+    }
+
+    urlsToTry.push(`${BOXCAST_API}${requestPath}`);
+
+    let lastError = null;
+
+    for (const url of urlsToTry) {
+        try {
+            return await fetchJson(url);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError ?? new Error('Failed to fetch BoxCast stream');
 }
 
 // ---------------------------------------------------------------------------
@@ -146,4 +168,29 @@ function pickLongest(broadcasts) {
 function durationMs(bc) {
     if (!bc.starts_at || !bc.stops_at) return 0;
     return new Date(bc.stops_at) - new Date(bc.starts_at);
+}
+
+async function fetchJson(url) {
+    const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+    });
+
+    if (!res.ok) {
+        throw new Error(`BoxCast API returned ${res.status}`);
+    }
+
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.data ?? data;
+}
+
+function getBroadcastProxyUrl(params) {
+    if (!import.meta.env.DEV) {
+        return `/api/worlds-broadcasts?${params}`;
+    }
+
+    if (typeof window !== 'undefined' && window.location.port === '3000') {
+        return `/api/worlds-broadcasts?${params}`;
+    }
+
+    return null;
 }

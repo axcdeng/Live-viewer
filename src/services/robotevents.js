@@ -330,7 +330,9 @@ export const findWorldsEvent = async (program, year) => {
         const events = res.data.data ?? [];
         const isHS = program === 'V5RC HS';
 
-        // Filter to VRC/V5RC world-level events only
+        // Filter to VRC/V5RC world-level events only.
+        // RobotEvents may also return local "Worlds Scrimmage" events in this range,
+        // so we exclude scrimmages and prefer the official championship records.
         const worldEvents = events.filter((e) => {
             const name = e.name.toLowerCase();
             const code = (e.program?.code ?? '').toUpperCase();
@@ -340,14 +342,32 @@ export const findWorldsEvent = async (program, year) => {
 
         if (!worldEvents.length) return null;
 
-        // Prefer grade-specific match when multiple events are present
-        for (const e of worldEvents) {
+        const nonScrimmageEvents = worldEvents.filter((e) => {
             const name = e.name.toLowerCase();
-            if (isHS && (name.includes('high school') || !name.includes('middle'))) return e;
-            if (!isHS && (name.includes('middle school') || name.includes(' ms'))) return e;
-        }
+            return !name.includes('scrimmage');
+        });
 
-        return worldEvents[0];
+        const championshipEvents = nonScrimmageEvents.filter((e) => {
+            const name = e.name.toLowerCase();
+            return name.includes('world championship');
+        });
+
+        const candidates = championshipEvents.length
+            ? championshipEvents
+            : (nonScrimmageEvents.length ? nonScrimmageEvents : worldEvents);
+
+        const exactGradeMatch = candidates.find((e) => {
+            const name = e.name.toLowerCase();
+            return isHS ? name.includes('high school') : name.includes('middle school');
+        });
+        if (exactGradeMatch) return exactGradeMatch;
+
+        return [...candidates].sort((a, b) => {
+            const aDivisions = a.divisions?.length ?? 0;
+            const bDivisions = b.divisions?.length ?? 0;
+            if (bDivisions !== aDivisions) return bDivisions - aDivisions;
+            return new Date(b.start ?? 0) - new Date(a.start ?? 0);
+        })[0] ?? null;
     } catch (err) {
         console.warn('[findWorldsEvent] failed:', err.message);
         return null;
@@ -375,4 +395,3 @@ export const getEventsForTeam = async (teamId, seasonIds = null) => {
         throw new Error('Could not fetch events for team');
     }
 };
-
