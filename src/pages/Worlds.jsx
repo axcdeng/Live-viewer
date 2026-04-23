@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
+import { useQueryState } from 'nuqs';
 import {
     Tv, Globe, ChevronDown,
     Loader, Play, Zap, Trophy, Users, Medal, Search,
@@ -11,13 +12,40 @@ import { WORLDS_PROGRAMS, WORLDS_YEARS, getProgConfig } from '../data/worldsConf
 import { fetchChannelBroadcasts, groupBroadcasts, resolveBroadcast, fetchBroadcastPlaylist } from '../services/boxcast';
 import { getEventBySku, findWorldsEvent, getMatchesForEvent, getRankingsForEvent } from '../services/robotevents';
 import { getMatchDayIndex, inferMatchDayFromContext } from '../utils/streamMatching';
-import { getWorldsSyncOffset, setWorldsSyncOffset, clearWorldsSyncOffset } from '../services/worldsSyncOffsets';
+import {
+    getWorldsSyncOffset,
+    setWorldsSyncOffset,
+    clearWorldsSyncOffset,
+    getWorldsSyncScope,
+    setWorldsSyncScope,
+    SYNC_SCOPE_DAY,
+    SYNC_SCOPE_DIVISION,
+} from '../services/worldsSyncOffsets';
 
 // ---------------------------------------------------------------------------
 // HLS Video Player
 // ---------------------------------------------------------------------------
 
 const MATCH_TIME_SANITY_WINDOW_MS = 30 * 60 * 1000;
+const DEFAULT_PROGRAM = 'V5RC HS';
+const DEFAULT_YEAR = '2026';
+const DEFAULT_TAB = 'matches';
+const DEFAULT_RANK_SORT = 'rank';
+const DEFAULT_MATCH_FILTER = 'all';
+const DEFAULT_DOCUMENT_TITLE = 'VEX Match Jumper / VEX Jumper';
+const DEFAULT_DOCUMENT_DESCRIPTION = 'VEX Match Jumper / VEX Jumper syncs RobotEvents match data with YouTube livestreams. Stop scrubbing through hours of video and jump directly to any VEX Robotics match.';
+const WORLDS_DEFAULT_TITLE = 'Worlds Championship | VEX Jumper';
+const WORLDS_DEFAULT_DESCRIPTION = 'Watch VEX Worlds division livestreams, browse team lists, search matches, and jump directly to streams in VEX Jumper.';
+const TAB_TO_QUERY = {
+    findTeam: 'find-team',
+    rankings: 'team-list',
+    matches: 'matches',
+};
+const QUERY_TO_TAB = {
+    'find-team': 'findTeam',
+    'team-list': 'rankings',
+    matches: 'matches',
+};
 
 function getEffectiveMatchTimestamp(match) {
     const started = match?.started;
@@ -115,6 +143,20 @@ function parseOffsetInputValue(value) {
 function formatOffsetSummary(offsetSeconds) {
     if (!offsetSeconds) return '00:00';
     return `${offsetSeconds > 0 ? '+' : '-'}${formatOffsetInputValue(Math.abs(offsetSeconds))}`;
+}
+
+function encodeWorldsTab(tab) {
+    return TAB_TO_QUERY[tab] ?? TAB_TO_QUERY[DEFAULT_TAB];
+}
+
+function decodeWorldsTab(value) {
+    return QUERY_TO_TAB[value] ?? DEFAULT_TAB;
+}
+
+function parseWorldsDayParam(value) {
+    if (!value) return 0;
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 1 ? parsed - 1 : 0;
 }
 
 function truncateLabel(label, maxLength = 26) {
@@ -261,36 +303,70 @@ function SyncCalibrationStrip({
     canCalibrate,
     calibrationLabel,
     onUseCurrentFrame,
+    scope,
+    onScopeChange,
 }) {
+    const isDivisionScope = scope === SYNC_SCOPE_DIVISION;
     return (
-        <div className={`space-y-3 transition-all duration-300 ${disabled ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
-            <div className="flex flex-wrap items-center gap-2.5">
-                <div className="flex items-center gap-1.5 min-w-0 mr-1">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">Offset</span>
+        <div className={`space-y-2.5 transition-opacity duration-300 ${disabled ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 shrink-0">
                     <HoverInfoCard
-                        title="Offset Help"
-                        body="Use this when every jump is consistently off by about the same amount. Use + when the stream needs a positive correction and - when it needs a negative correction."
+                        title="Scope"
+                        body="Choose whether the saved offset applies only to the day you calibrated, or to every day of this division. Per-day is more accurate since streams usually start at different times each day; all-days is easier if you just want one rough correction for the whole division."
                     />
+                    <div className="flex items-center rounded-lg border border-gray-800 bg-black/50 p-0.5">
+                        <button
+                            onClick={() => onScopeChange(SYNC_SCOPE_DAY)}
+                            className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${!isDivisionScope ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
+                            title="Offset applies only to this day"
+                        >
+                            This Day
+                        </button>
+                        <button
+                            onClick={() => onScopeChange(SYNC_SCOPE_DIVISION)}
+                            className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${isDivisionScope ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
+                            title="Offset applies to every day of this division"
+                        >
+                            All Days
+                        </button>
+                    </div>
                 </div>
-
-                <div className="flex items-center rounded-lg border border-gray-800 bg-black/50 p-0.5 shrink-0">
-                    <button
-                        onClick={() => onOffsetDirectionChange('later')}
-                        className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${offsetDirection === 'later' ? 'bg-[#4FCEEC] text-black' : 'text-gray-500 hover:text-white'}`}
-                        title="Later offset"
-                    >
-                        Later
-                    </button>
-                    <button
-                        onClick={() => onOffsetDirectionChange('earlier')}
-                        className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${offsetDirection === 'earlier' ? 'bg-[#4FCEEC] text-black' : 'text-gray-500 hover:text-white'}`}
-                        title="Earlier offset"
-                    >
-                        Earlier
-                    </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <HoverInfoCard
+                        title="Offset"
+                        body="Use this when every jump is consistently off by about the same amount. Pick + when the stream needs a positive correction (jumps land a bit later) and − when it needs a negative correction (jumps land a bit earlier)."
+                    />
+                    <div className="flex items-center rounded-lg border border-gray-800 bg-black/50 p-0.5">
+                        <button
+                            onClick={() => onOffsetDirectionChange('later')}
+                            className={`h-6 w-6 rounded-md text-sm font-bold transition-colors ${offsetDirection === 'later' ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
+                            title="Later — jumps land a bit later in the video"
+                        >
+                            +
+                        </button>
+                        <button
+                            onClick={() => onOffsetDirectionChange('earlier')}
+                            className={`h-6 w-6 rounded-md text-sm font-bold transition-colors ${offsetDirection === 'earlier' ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
+                            title="Earlier — jumps land a bit earlier in the video"
+                        >
+                            −
+                        </button>
+                    </div>
+                    <input
+                        type="text"
+                        value={offsetInput}
+                        onChange={(e) => onOffsetInputChange(e.target.value)}
+                        onBlur={onOffsetInputCommit}
+                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                        inputMode="numeric"
+                        placeholder="00:00"
+                        aria-label="Offset (mm:ss)"
+                        className={`h-7 w-16 rounded-md border px-1.5 text-[11px] font-semibold text-center outline-none transition-colors ${offsetInputInvalid ? 'border-red-500 bg-red-500/10 text-red-100' : 'border-gray-800 bg-black/50 text-white focus:border-[#4FCEEC]'}`}
+                    />
                     <button
                         onClick={onOffsetReset}
-                        className={`ml-1 flex h-7 w-7 items-center justify-center rounded-md transition-colors ${offsetSeconds ? 'text-gray-400 hover:bg-gray-800 hover:text-white' : 'text-gray-700 cursor-not-allowed'}`}
+                        className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${offsetSeconds ? 'text-gray-400 hover:bg-gray-800 hover:text-white' : 'text-gray-700 cursor-not-allowed'}`}
                         title="Reset offset"
                         aria-label="Reset offset"
                         disabled={!offsetSeconds}
@@ -298,48 +374,25 @@ function SyncCalibrationStrip({
                         <RotateCcw className="h-3.5 w-3.5" />
                     </button>
                 </div>
-
-                <input
-                    type="text"
-                    value={offsetInput}
-                    onChange={(e) => onOffsetInputChange(e.target.value)}
-                    onBlur={onOffsetInputCommit}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            e.currentTarget.blur();
-                        }
-                    }}
-                    inputMode="numeric"
-                    placeholder="00:00"
-                    className={`h-9 w-20 rounded-lg border px-2 text-xs font-semibold text-center outline-none transition-colors shrink-0 ${offsetInputInvalid ? 'border-red-500 bg-red-500/10 text-red-100' : 'border-gray-800 bg-black/50 text-white focus:border-[#4FCEEC]'}`}
-                />
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-800/80 pt-3">
-                <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-500">Calibrate</span>
-                        <HoverInfoCard
-                            title="Calibration Help"
-                            body="Best method: jump to a match, scrub to the real start in the video, then press Use Current Frame. That saves the correction for this division and day."
-                        />
-                    </div>
-                    <p className="mt-1 text-xs text-gray-300">
-                        {canCalibrate ? `Ready to calibrate with ${truncateLabel(calibrationLabel, 40)}.` : calibrationLabel}
-                    </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                    {offsetInputInvalid && (
-                        <span className="text-[11px] font-medium text-red-300">Use `mm:ss`</span>
-                    )}
+            {offsetInputInvalid && (
+                <p className="text-[10px] font-medium text-red-300">Use mm:ss format</p>
+            )}
+
+            <div className="flex items-center justify-between gap-3 border-t border-gray-800/70 pt-2.5">
+                <p className="text-[11px] text-gray-400 min-w-0 truncate">
+                    {canCalibrate ? `Ready: ${truncateLabel(calibrationLabel, 32)}` : calibrationLabel}
+                </p>
+                <div className="flex items-center gap-1.5 shrink-0">
                     <HoverInfoCard
-                        title="Quick Reminder"
-                        body="1. Jump to a match. 2. Drag the video to the real start. 3. Press Use Current Frame once. After that, later jumps on this stream should land much closer."
+                        title="How to Calibrate"
+                        body="1. Jump to a match. 2. Scrub the video to where the match actually starts. 3. Press Use Current Frame. The correction is saved under the scope you picked (this day only, or every day of the division)."
                     />
                     <button
                         onClick={onUseCurrentFrame}
                         disabled={!canCalibrate}
-                        className={`rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors shrink-0 ${canCalibrate ? 'bg-[#4FCEEC] text-black hover:bg-[#3db8d6]' : 'bg-gray-900 text-gray-600 cursor-not-allowed'}`}
+                        className={`rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors shrink-0 ${canCalibrate ? 'bg-[#4FCEEC] text-black hover:bg-[#3db8d6]' : 'bg-gray-900 text-gray-600 cursor-not-allowed'}`}
                     >
                         Use Current Frame
                     </button>
@@ -507,15 +560,23 @@ function TeamCard({ ranking, onSelect }) {
 // ---------------------------------------------------------------------------
 
 export default function Worlds() {
-    // Selectors
-    const [program, setProgram] = useState('V5RC HS');
-    const [year, setYear] = useState('2026');
-    const [selectedDivName, setSelectedDivName] = useState(null);
-    const [selectedDayIdx, setSelectedDayIdx] = useState(0);
+    // URL-backed selectors
+    const [urlProgram, setUrlProgram] = useQueryState('program', { history: 'push' });
+    const [urlYear, setUrlYear] = useQueryState('year', { history: 'push' });
+    const [urlDivision, setUrlDivision] = useQueryState('division', { history: 'push' });
+    const [urlDay, setUrlDay] = useQueryState('day', { history: 'push' });
+    const [urlTab, setUrlTab] = useQueryState('tab', { history: 'push' });
+    const [urlFind, setUrlFind] = useQueryState('find', { history: 'replace' });
+    const [urlRankSearch, setUrlRankSearch] = useQueryState('rankSearch', { history: 'replace' });
+    const [urlRankSort, setUrlRankSort] = useQueryState('rankSort', { history: 'replace' });
+    const [urlMatchSearch, setUrlMatchSearch] = useQueryState('matchSearch', { history: 'replace' });
+    const [urlMatchFilter, setUrlMatchFilter] = useQueryState('matchFilter', { history: 'replace' });
+    const [urlMatch, setUrlMatch] = useQueryState('match', { history: 'push' });
 
     // BoxCast data
     const [broadcasts, setBroadcasts] = useState({});
     const [broadcastsLoading, setBroadcastsLoading] = useState(false);
+    const [broadcastsFetched, setBroadcastsFetched] = useState(false);
 
     // HLS playlist
     const [playlist, setPlaylist] = useState(null);
@@ -526,11 +587,13 @@ export default function Worlds() {
     const [pendingSeekRequest, setPendingSeekRequest] = useState(null);
     const [lastJumpContext, setLastJumpContext] = useState(null);
     const [activeOffsetSeconds, setActiveOffsetSeconds] = useState(0);
+    const [activeScope, setActiveScope] = useState(SYNC_SCOPE_DIVISION);
     const [offsetInput, setOffsetInput] = useState('00:00');
     const [offsetDirection, setOffsetDirection] = useState('later');
     const [offsetInputInvalid, setOffsetInputInvalid] = useState(false);
     const [isSyncCardOpen, setIsSyncCardOpen] = useState(true);
     const playerVideoRef = useRef(null);
+    const deepLinkedMatchIdRef = useRef(null);
 
     // RobotEvents data
     const [worldsEvent, setWorldsEvent] = useState(null);
@@ -540,20 +603,8 @@ export default function Worlds() {
     const [rankings, setRankings] = useState([]);
     const [rankingsLoading, setRankingsLoading] = useState(false);
 
-    // Right panel tab: 'findTeam' | 'rankings' | 'matches'
-    const [activeTab, setActiveTab] = useState('matches');
-
     // Find Team tab state
     const [findTeamInput, setFindTeamInput] = useState('');
-    const [findTeamQuery, setFindTeamQuery] = useState('');
-
-    // Rankings tab state
-    const [rankSearch, setRankSearch] = useState('');
-    const [rankSort, setRankSort] = useState('rank'); // 'rank' | 'number'
-
-    // Matches tab state
-    const [matchSearch, setMatchSearch] = useState('');
-    const [matchFilter, setMatchFilter] = useState('all'); // 'all' | 'quals' | 'elim'
 
     const [error, setError] = useState(null);
 
@@ -561,9 +612,37 @@ export default function Worlds() {
     // Derived
     // ---------------------------------------------------------------------------
 
+    const program = useMemo(
+        () => (WORLDS_PROGRAMS.includes(urlProgram ?? '') ? urlProgram : DEFAULT_PROGRAM),
+        [urlProgram]
+    );
+    const year = useMemo(
+        () => (WORLDS_YEARS.includes(urlYear ?? '') ? urlYear : DEFAULT_YEAR),
+        [urlYear]
+    );
     const progConfig = useMemo(() => getProgConfig(year, program), [year, program]);
     const divisionNames = progConfig?.divisions ?? [];
     const isConfigured = !!progConfig && divisionNames.length > 0;
+    const selectedDivName = useMemo(
+        () => (divisionNames.includes(urlDivision ?? '') ? urlDivision : null),
+        [divisionNames, urlDivision]
+    );
+    const rawDayIdx = useMemo(() => parseWorldsDayParam(urlDay), [urlDay]);
+    const selectedDayIdx = useMemo(() => {
+        if (!selectedDivName) return 0;
+        const maxDayIdx = Math.max(0, (progConfig?.numDays ?? 1) - 1);
+        return Math.min(Math.max(rawDayIdx, 0), maxDayIdx);
+    }, [selectedDivName, progConfig, rawDayIdx]);
+    const activeTab = useMemo(() => decodeWorldsTab(urlTab), [urlTab]);
+    const findTeamQuery = activeTab === 'findTeam' ? (urlFind ?? '') : '';
+    const rankSearch = activeTab === 'rankings' ? (urlRankSearch ?? '') : '';
+    const rankSort = activeTab === 'rankings' && ['rank', 'number'].includes(urlRankSort ?? '')
+        ? urlRankSort
+        : DEFAULT_RANK_SORT;
+    const matchSearch = activeTab === 'matches' ? (urlMatchSearch ?? '') : '';
+    const matchFilter = activeTab === 'matches' && ['all', 'quals', 'elim'].includes(urlMatchFilter ?? '')
+        ? urlMatchFilter
+        : DEFAULT_MATCH_FILTER;
 
     const currentBroadcast = useMemo(() => {
         if (!selectedDivName || !progConfig) return null;
@@ -671,9 +750,124 @@ export default function Worlds() {
     // ---------------------------------------------------------------------------
 
     useEffect(() => {
-        setSelectedDivName(null);
-        setSelectedDayIdx(0);
+        setFindTeamInput(findTeamQuery);
+    }, [findTeamQuery]);
+
+    useEffect(() => {
+        if (urlProgram === DEFAULT_PROGRAM) {
+            setUrlProgram(null, { history: 'replace' });
+        } else if (urlProgram && !WORLDS_PROGRAMS.includes(urlProgram)) {
+            setUrlProgram(null, { history: 'replace' });
+        }
+    }, [urlProgram, setUrlProgram]);
+
+    useEffect(() => {
+        if (urlYear === DEFAULT_YEAR) {
+            setUrlYear(null, { history: 'replace' });
+        } else if (urlYear && !WORLDS_YEARS.includes(urlYear)) {
+            setUrlYear(null, { history: 'replace' });
+        }
+    }, [urlYear, setUrlYear]);
+
+    useEffect(() => {
+        const encodedDefaultTab = encodeWorldsTab(DEFAULT_TAB);
+        if (urlTab === encodedDefaultTab) {
+            setUrlTab(null, { history: 'replace' });
+        } else if (urlTab && !QUERY_TO_TAB[urlTab]) {
+            setUrlTab(null, { history: 'replace' });
+        }
+    }, [urlTab, setUrlTab]);
+
+    useEffect(() => {
+        if (!urlDivision) {
+            if (urlDay !== null) setUrlDay(null, { history: 'replace' });
+            return;
+        }
+
+        if (!divisionNames.includes(urlDivision)) {
+            setUrlDivision(null, { history: 'replace' });
+            if (urlDay !== null) setUrlDay(null, { history: 'replace' });
+        }
+    }, [urlDivision, urlDay, divisionNames, setUrlDivision, setUrlDay]);
+
+    useEffect(() => {
+        if (!selectedDivName) return;
+
+        const maxDayIdx = Math.max(0, (progConfig?.numDays ?? 1) - 1);
+        const parsed = Number(urlDay);
+        const hasValidNumericDay = urlDay === null || (Number.isInteger(parsed) && parsed >= 1);
+        if (!hasValidNumericDay || rawDayIdx > maxDayIdx) {
+            setUrlDay(selectedDayIdx > 0 ? String(selectedDayIdx + 1) : null, { history: 'replace' });
+        }
+    }, [selectedDivName, progConfig, rawDayIdx, selectedDayIdx, urlDay, setUrlDay]);
+
+    useEffect(() => {
+        if (!selectedDivName || broadcastsLoading || !broadcastsFetched || rawDayIdx === 0) return;
+        if (!availableDays[rawDayIdx]?.hasBroadcast) {
+            setUrlDay(null, { history: 'replace' });
+        }
+    }, [selectedDivName, broadcastsLoading, broadcastsFetched, rawDayIdx, availableDays, setUrlDay]);
+
+    useEffect(() => {
+        if (activeTab !== 'findTeam' && urlFind !== null) {
+            setUrlFind(null, { history: 'replace' });
+        }
+    }, [activeTab, urlFind, setUrlFind]);
+
+    useEffect(() => {
+        if (activeTab !== 'rankings') {
+            if (urlRankSearch !== null) setUrlRankSearch(null, { history: 'replace' });
+            if (urlRankSort !== null) setUrlRankSort(null, { history: 'replace' });
+            return;
+        }
+
+        if (urlRankSort === DEFAULT_RANK_SORT || (urlRankSort && !['rank', 'number'].includes(urlRankSort))) {
+            setUrlRankSort(null, { history: 'replace' });
+        }
+    }, [activeTab, urlRankSearch, urlRankSort, setUrlRankSearch, setUrlRankSort]);
+
+    useEffect(() => {
+        if (activeTab !== 'matches') {
+            if (urlMatchSearch !== null) setUrlMatchSearch(null, { history: 'replace' });
+            if (urlMatchFilter !== null) setUrlMatchFilter(null, { history: 'replace' });
+            return;
+        }
+
+        if (urlMatchFilter === DEFAULT_MATCH_FILTER || (urlMatchFilter && !['all', 'quals', 'elim'].includes(urlMatchFilter))) {
+            setUrlMatchFilter(null, { history: 'replace' });
+        }
+    }, [activeTab, urlMatchSearch, urlMatchFilter, setUrlMatchSearch, setUrlMatchFilter]);
+
+    useEffect(() => {
+        const metaDescription = document.querySelector('meta[name="description"]');
+        const hasProgramYearContext = !!selectedDivName || !!urlProgram || !!urlYear;
+        const title = selectedDivName
+            ? `${selectedDivName} Day ${selectedDayIdx + 1} | ${program} Worlds ${year} | VEX Jumper`
+            : hasProgramYearContext
+            ? `${program} Worlds ${year} | VEX Jumper`
+            : WORLDS_DEFAULT_TITLE;
+        const description = selectedDivName
+            ? `Watch ${program} Worlds ${year} division livestreams, browse team lists, search matches, and jump directly to streams in VEX Jumper. Currently viewing ${selectedDivName} Day ${selectedDayIdx + 1}.`
+            : hasProgramYearContext
+            ? `Watch ${program} Worlds ${year} division livestreams, browse team lists, search matches, and jump directly to streams in VEX Jumper.`
+            : WORLDS_DEFAULT_DESCRIPTION;
+
+        document.title = title;
+        if (metaDescription) {
+            metaDescription.setAttribute('content', description);
+        }
+
+        return () => {
+            document.title = DEFAULT_DOCUMENT_TITLE;
+            if (metaDescription) {
+                metaDescription.setAttribute('content', DEFAULT_DOCUMENT_DESCRIPTION);
+            }
+        };
+    }, [program, year, selectedDivName, selectedDayIdx, urlProgram, urlYear]);
+
+    useEffect(() => {
         setBroadcasts({});
+        setBroadcastsFetched(false);
         setPlaylist(null);
         setSeekRequest(null);
         setPendingSeekRequest(null);
@@ -689,7 +883,10 @@ export default function Worlds() {
         fetchChannelBroadcasts(progConfig.channelId, year)
             .then((raw) => setBroadcasts(groupBroadcasts(raw, divisionNames)))
             .catch((err) => setError('Could not load broadcasts: ' + err.message))
-            .finally(() => setBroadcastsLoading(false));
+            .finally(() => {
+                setBroadcastsLoading(false);
+                setBroadcastsFetched(true);
+            });
 
         const sku = progConfig.sku;
         setEventLoading(true);
@@ -711,7 +908,14 @@ export default function Worlds() {
     }, [currentBroadcast]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        const entry = activeSyncTarget ? getWorldsSyncOffset(activeSyncTarget) : null;
+        if (!activeSyncTarget) {
+            setActiveScope(SYNC_SCOPE_DIVISION);
+            setActiveOffsetSeconds(0);
+            return;
+        }
+        const scope = getWorldsSyncScope(activeSyncTarget);
+        setActiveScope(scope);
+        const entry = getWorldsSyncOffset(activeSyncTarget);
         setActiveOffsetSeconds(entry?.offsetSeconds ?? 0);
     }, [activeSyncTarget]);
 
@@ -757,25 +961,89 @@ export default function Worlds() {
     // Handlers
     // ---------------------------------------------------------------------------
 
-    const handleDivisionSelect = (name) => {
-        if (selectedDivName === name) { setSelectedDivName(null); setSelectedDayIdx(0); return; }
-        setSelectedDivName(name);
-        setSelectedDayIdx(0);
+    const setFindTeamQueryState = useCallback((value) => {
+        const trimmed = value.trim();
+        setUrlFind(trimmed ? trimmed : null, { history: 'replace' });
+    }, [setUrlFind]);
+
+    const setRankSearchState = useCallback((value) => {
+        const trimmed = value.trim();
+        setUrlRankSearch(trimmed ? value : null, { history: 'replace' });
+    }, [setUrlRankSearch]);
+
+    const setRankSortState = useCallback((value) => {
+        setUrlRankSort(value === DEFAULT_RANK_SORT ? null : value, { history: 'replace' });
+    }, [setUrlRankSort]);
+
+    const setMatchSearchState = useCallback((value) => {
+        const trimmed = value.trim();
+        setUrlMatchSearch(trimmed ? value : null, { history: 'replace' });
+    }, [setUrlMatchSearch]);
+
+    const setMatchFilterState = useCallback((value) => {
+        setUrlMatchFilter(value === DEFAULT_MATCH_FILTER ? null : value, { history: 'replace' });
+    }, [setUrlMatchFilter]);
+
+    const handleTabChange = useCallback((tabId) => {
+        setUrlTab(tabId === DEFAULT_TAB ? null : encodeWorldsTab(tabId), { history: 'push' });
+        if (tabId !== 'findTeam') setUrlFind(null, { history: 'replace' });
+        if (tabId !== 'rankings') {
+            setUrlRankSearch(null, { history: 'replace' });
+            setUrlRankSort(null, { history: 'replace' });
+        }
+        if (tabId !== 'matches') {
+            setUrlMatchSearch(null, { history: 'replace' });
+            setUrlMatchFilter(null, { history: 'replace' });
+        }
+    }, [setUrlTab, setUrlFind, setUrlRankSearch, setUrlRankSort, setUrlMatchSearch, setUrlMatchFilter]);
+
+    const handleProgramChange = useCallback((nextProgram) => {
+        const normalized = WORLDS_PROGRAMS.includes(nextProgram) ? nextProgram : DEFAULT_PROGRAM;
+        setUrlProgram(normalized === DEFAULT_PROGRAM ? null : normalized, { history: 'push' });
+        setUrlDivision(null, { history: 'replace' });
+        setUrlDay(null, { history: 'replace' });
+        setUrlMatch(null, { history: 'replace' });
+    }, [setUrlProgram, setUrlDivision, setUrlDay, setUrlMatch]);
+
+    const handleYearChange = useCallback((nextYear) => {
+        const normalized = WORLDS_YEARS.includes(nextYear) ? nextYear : DEFAULT_YEAR;
+        setUrlYear(normalized === DEFAULT_YEAR ? null : normalized, { history: 'push' });
+        setUrlDivision(null, { history: 'replace' });
+        setUrlDay(null, { history: 'replace' });
+        setUrlMatch(null, { history: 'replace' });
+    }, [setUrlYear, setUrlDivision, setUrlDay, setUrlMatch]);
+
+    const handleDivisionSelect = useCallback((name) => {
+        if (selectedDivName === name) {
+            setUrlDivision(null, { history: 'push' });
+            setUrlDay(null, { history: 'replace' });
+            setUrlMatch(null, { history: 'replace' });
+            setFindTeamQueryState('');
+            setFindTeamInput('');
+            setMatchSearchState('');
+            setRankSearchState('');
+            return;
+        }
+
+        setUrlDivision(name, { history: 'push' });
+        setUrlDay(null, { history: 'replace' });
+        setUrlMatch(null, { history: 'replace' });
         setSeekRequest(null);
         setPendingSeekRequest(null);
-        setFindTeamQuery('');
+        setFindTeamQueryState('');
         setFindTeamInput('');
-        setMatchSearch('');
-        setRankSearch('');
+        setMatchSearchState('');
+        setRankSearchState('');
         setMatches([]);
         setRankings([]);
-    };
+    }, [selectedDivName, setUrlDivision, setUrlDay, setUrlMatch, setFindTeamQueryState, setMatchSearchState, setRankSearchState]);
 
-    const handleDaySelect = (idx) => {
-        setSelectedDayIdx(idx);
+    const handleDaySelect = useCallback((idx) => {
+        setUrlDay(idx > 0 ? String(idx + 1) : null, { history: 'push' });
+        setUrlMatch(null, { history: 'replace' });
         setSeekRequest(null);
         setPendingSeekRequest(null);
-    };
+    }, [setUrlDay, setUrlMatch]);
 
     const handleSeek = useCallback((seconds) => {
         const video = playerVideoRef.current;
@@ -842,8 +1110,12 @@ export default function Worlds() {
             !playlist
         ) {
             setPendingSeekRequest(nextSeekRequest);
-            if (selectedDivName !== context.divisionName) setSelectedDivName(context.divisionName);
-            if (selectedDayIdx !== context.dayIdx) setSelectedDayIdx(context.dayIdx);
+            if (selectedDivName !== context.divisionName) {
+                setUrlDivision(context.divisionName, { history: 'push' });
+            }
+            if (selectedDayIdx !== context.dayIdx) {
+                setUrlDay(context.dayIdx > 0 ? String(context.dayIdx + 1) : null, { history: 'replace' });
+            }
             return;
         }
 
@@ -851,7 +1123,7 @@ export default function Worlds() {
             time: nextSeekRequest.time,
             nonce: Date.now(),
         });
-    }, [program, year, getOffsetSecondsForTarget, selectedDivName, selectedDayIdx, currentBroadcast, playlist]);
+    }, [program, year, getOffsetSecondsForTarget, selectedDivName, selectedDayIdx, currentBroadcast, playlist, setUrlDivision, setUrlDay]);
 
     const handleJumpToMatch = useCallback((match) => {
         if (!selectedDivName || !progConfig || !eventStartDate) return;
@@ -883,13 +1155,32 @@ export default function Worlds() {
             baseJumpSeconds: baseJumpSeconds || 0.001,
         };
         setLastJumpContext(jumpContext);
+        deepLinkedMatchIdRef.current = String(match.id);
+        setUrlMatch(String(match.id), { history: 'push' });
         jumpToContext(jumpContext);
-    }, [selectedDivName, progConfig, eventStartDate, matches, broadcasts, jumpToContext]);
+    }, [selectedDivName, progConfig, eventStartDate, matches, broadcasts, jumpToContext, setUrlMatch]);
 
     const handleJumpToSynced = useCallback(() => {
         if (!lastJumpContext) return;
         jumpToContext(lastJumpContext);
     }, [lastJumpContext, jumpToContext]);
+
+    // Deep-link: jump to a match specified in the URL once all data is ready.
+    // Gated on broadcasts + matches being loaded so we never try to jump before
+    // the target broadcast/day is resolvable (which would otherwise drop the day).
+    useEffect(() => {
+        if (!urlMatch) {
+            deepLinkedMatchIdRef.current = null;
+            return;
+        }
+        if (deepLinkedMatchIdRef.current === urlMatch) return;
+        if (!selectedDivName || !progConfig || !eventStartDate || !broadcastsFetched) return;
+        if (matchesLoading || matches.length === 0) return;
+
+        const target = matches.find((m) => String(m.id) === String(urlMatch));
+        deepLinkedMatchIdRef.current = urlMatch;
+        if (target) handleJumpToMatch(target);
+    }, [urlMatch, selectedDivName, progConfig, eventStartDate, broadcastsFetched, matchesLoading, matches, handleJumpToMatch]);
 
     const canJumpToMatch = useCallback((match) => {
         if (!selectedDivName || !progConfig || !eventStartDate) return false;
@@ -938,6 +1229,43 @@ export default function Worlds() {
         setOffsetInputInvalid(false);
     }, [activeSyncTarget, persistOffsetForTarget]);
 
+    const handleClearAll = useCallback(() => {
+        deepLinkedMatchIdRef.current = null;
+
+        setUrlProgram(null, { history: 'replace' });
+        setUrlYear(null, { history: 'replace' });
+        setUrlDivision(null, { history: 'replace' });
+        setUrlDay(null, { history: 'replace' });
+        setUrlTab(null, { history: 'replace' });
+        setUrlFind(null, { history: 'replace' });
+        setUrlRankSearch(null, { history: 'replace' });
+        setUrlRankSort(null, { history: 'replace' });
+        setUrlMatchSearch(null, { history: 'replace' });
+        setUrlMatchFilter(null, { history: 'replace' });
+        setUrlMatch(null, { history: 'replace' });
+
+        setFindTeamInput('');
+        setSeekRequest(null);
+        setPendingSeekRequest(null);
+        setLastJumpContext(null);
+        setError(null);
+    }, [
+        setUrlProgram, setUrlYear, setUrlDivision, setUrlDay, setUrlTab,
+        setUrlFind, setUrlRankSearch, setUrlRankSort,
+        setUrlMatchSearch, setUrlMatchFilter, setUrlMatch,
+    ]);
+
+    const handleScopeChange = useCallback((nextScope) => {
+        if (!activeSyncTarget) return;
+        const normalized = nextScope === SYNC_SCOPE_DIVISION ? SYNC_SCOPE_DIVISION : SYNC_SCOPE_DAY;
+        if (normalized === activeScope) return;
+        setWorldsSyncScope(activeSyncTarget, normalized);
+        setActiveScope(normalized);
+        const entry = getWorldsSyncOffset(activeSyncTarget);
+        setActiveOffsetSeconds(entry?.offsetSeconds ?? 0);
+        setOffsetInputInvalid(false);
+    }, [activeSyncTarget, activeScope]);
+
     const canCalibrateCurrentFrame = !!(
         lastJumpContext &&
         playlist &&
@@ -979,7 +1307,7 @@ export default function Worlds() {
 
     const TabButton = ({ id, label }) => (
         <button
-            onClick={() => setActiveTab(id)}
+            onClick={() => handleTabChange(id)}
             className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
                 activeTab === id ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
             }`}
@@ -1110,13 +1438,13 @@ export default function Worlds() {
                                 </div>
                                 <InlineSelectField
                                     value={program}
-                                    onChange={setProgram}
+                                    onChange={handleProgramChange}
                                     options={WORLDS_PROGRAMS.map((p) => ({ value: p, label: p }))}
                                     className="flex-1 min-w-0"
                                 />
                                 <InlineSelectField
                                     value={year}
-                                    onChange={setYear}
+                                    onChange={handleYearChange}
                                     options={WORLDS_YEARS.map((y) => ({ value: y, label: y }))}
                                     className="w-28 shrink-0"
                                 />
@@ -1127,29 +1455,24 @@ export default function Worlds() {
                         <div className="bg-gray-900 border border-gray-800 rounded-xl flex-shrink-0 overflow-visible">
                             <button
                                 onClick={() => setIsSyncCardOpen((open) => !open)}
-                                className="w-full px-4 py-3.5 flex items-center justify-between gap-3 hover:bg-gray-800/40 transition-colors"
+                                className="w-full px-3 py-2.5 flex items-center justify-between gap-3 hover:bg-gray-800/40 transition-colors"
                             >
-                                <div className="flex items-center gap-3 min-w-0 text-left">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Sync Calibration</h2>
-                                            <HoverInfoCard
-                                                title="How Sync Works"
-                                                body="If your jumps are always early or late by about the same amount, save that correction here. For best results: jump to a match, scrub to the real start, then press Use Current Frame once."
-                                                className="-mr-1"
-                                            />
-                                        </div>
-                                        <p className="text-xs text-gray-500 mt-1">
-                                            {syncCardSummary}
-                                            {activeSyncTarget ? ` • ${selectedDivName} • Day ${selectedDayIdx + 1}` : ''}
-                                        </p>
-                                    </div>
+                                <div className="flex items-center gap-2 min-w-0 text-left">
+                                    <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Sync</h2>
+                                    <HoverInfoCard
+                                        title="How Sync Works"
+                                        body="If your jumps are always early or late by about the same amount, save that correction here. For best results: jump to a match, scrub to the real start, then press Use Current Frame once."
+                                    />
+                                    <span className="text-[11px] text-gray-500 truncate">
+                                        {syncCardSummary}
+                                        {activeSyncTarget ? ` • ${activeScope === SYNC_SCOPE_DIVISION ? 'All Days' : `Day ${selectedDayIdx + 1}`}` : ''}
+                                    </span>
                                 </div>
-                                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isSyncCardOpen ? 'rotate-180' : ''}`} />
+                                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform shrink-0 ${isSyncCardOpen ? 'rotate-180' : ''}`} />
                             </button>
 
                             {isSyncCardOpen && (
-                                <div className="border-t border-gray-800 px-4 py-3.5 overflow-visible">
+                                <div className="border-t border-gray-800 px-3 py-3 overflow-visible">
                                     <SyncCalibrationStrip
                                         disabled={!activeSyncTarget}
                                         offsetSeconds={activeOffsetSeconds}
@@ -1163,6 +1486,8 @@ export default function Worlds() {
                                         canCalibrate={canCalibrateCurrentFrame}
                                         calibrationLabel={calibrationLabel}
                                         onUseCurrentFrame={handleUseCurrentFrameCalibration}
+                                        scope={activeScope}
+                                        onScopeChange={handleScopeChange}
                                     />
                                 </div>
                             )}
@@ -1192,10 +1517,10 @@ export default function Worlds() {
                                                 onChange={(e) => setFindTeamInput(e.target.value)}
                                                 placeholder="Team number (e.g., 8977A)"
                                                 className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
-                                                onKeyDown={(e) => e.key === 'Enter' && setFindTeamQuery(findTeamInput)}
+                                                onKeyDown={(e) => e.key === 'Enter' && setFindTeamQueryState(findTeamInput)}
                                             />
                                             <button
-                                                onClick={() => setFindTeamQuery(findTeamInput)}
+                                                onClick={() => setFindTeamQueryState(findTeamInput)}
                                                 disabled={!findTeamInput.trim() || !selectedDivName}
                                                 className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-4 py-2 rounded-lg font-bold text-sm transition-colors"
                                             >
@@ -1260,20 +1585,20 @@ export default function Worlds() {
                                                 type="text"
                                                 placeholder="Search teams..."
                                                 value={rankSearch}
-                                                onChange={(e) => setRankSearch(e.target.value)}
+                                                onChange={(e) => setRankSearchState(e.target.value)}
                                                 className="bg-transparent border-none focus:outline-none text-sm w-full text-white placeholder-gray-500"
                                             />
                                         </div>
                                         {/* Sort pills */}
                                         <div className="flex gap-2">
                                             <button
-                                                onClick={() => setRankSort('rank')}
+                                                onClick={() => setRankSortState('rank')}
                                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${rankSort === 'rank' ? 'bg-[#4FCEEC] text-black' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
                                             >
                                                 <Trophy className="w-3 h-3" /> Rank
                                             </button>
                                             <button
-                                                onClick={() => setRankSort('number')}
+                                                onClick={() => setRankSortState('number')}
                                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${rankSort === 'number' ? 'bg-[#4FCEEC] text-black' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
                                             >
                                                 <Users className="w-3 h-3" /> Default
@@ -1302,8 +1627,8 @@ export default function Worlds() {
                                                     ranking={r}
                                                     onSelect={(num) => {
                                                         setFindTeamInput(num);
-                                                        setFindTeamQuery(num);
-                                                        setActiveTab('findTeam');
+                                                        handleTabChange('findTeam');
+                                                        setFindTeamQueryState(num);
                                                     }}
                                                 />
                                             ))
@@ -1319,7 +1644,7 @@ export default function Worlds() {
                                         <input
                                             type="text"
                                             value={matchSearch}
-                                            onChange={(e) => setMatchSearch(e.target.value)}
+                                            onChange={(e) => setMatchSearchState(e.target.value)}
                                             placeholder="Search matches (e.g. #10, QF, 1698A)"
                                             className="w-full bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
                                         />
@@ -1327,7 +1652,7 @@ export default function Worlds() {
                                             {['all', 'quals', 'elim'].map((f) => (
                                                 <button
                                                     key={f}
-                                                    onClick={() => setMatchFilter(f)}
+                                                    onClick={() => setMatchFilterState(f)}
                                                     className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
                                                         matchFilter === f ? 'bg-[#4FCEEC] text-black' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                                                     }`}
@@ -1387,6 +1712,17 @@ export default function Worlds() {
                     </div>
                 </div>
             </main>
+
+            {/* Floating Clear All (Bottom Left) */}
+            <div className="fixed bottom-4 left-4 z-40">
+                <button
+                    onClick={handleClearAll}
+                    className="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm group"
+                    title="Clear All"
+                >
+                    <RotateCcw className="w-5 h-5 text-red-400 group-hover:text-red-300" />
+                </button>
+            </div>
         </div>
     );
 }
