@@ -881,12 +881,12 @@ export default function Worlds() {
 
         setBroadcastsLoading(true);
         fetchChannelBroadcasts(progConfig.channelId, year)
-            .then((raw) => setBroadcasts(groupBroadcasts(raw, divisionNames)))
-            .catch((err) => setError('Could not load broadcasts: ' + err.message))
-            .finally(() => {
-                setBroadcastsLoading(false);
+            .then((raw) => {
+                setBroadcasts(groupBroadcasts(raw, divisionNames));
                 setBroadcastsFetched(true);
-            });
+            })
+            .catch((err) => setError('Could not load broadcasts: ' + err.message))
+            .finally(() => setBroadcastsLoading(false));
 
         const sku = progConfig.sku;
         setEventLoading(true);
