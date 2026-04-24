@@ -18,6 +18,7 @@ import {
     clearWorldsSyncOffset,
     getWorldsSyncScope,
     setWorldsSyncScope,
+    getWorldsSyncPresetOffset,
     SYNC_SCOPE_DAY,
     SYNC_SCOPE_DIVISION,
 } from '../services/worldsSyncOffsets';
@@ -1063,8 +1064,11 @@ export default function Worlds() {
 
     const getOffsetSecondsForTarget = useCallback((target) => {
         if (!target) return 0;
-        if (isSameSyncTarget(target, activeSyncTarget)) return activeOffsetSeconds;
-        return getWorldsSyncOffset(target)?.offsetSeconds ?? 0;
+        const preset = getWorldsSyncPresetOffset(target);
+        const userOffset = isSameSyncTarget(target, activeSyncTarget)
+            ? activeOffsetSeconds
+            : (getWorldsSyncOffset(target)?.offsetSeconds ?? 0);
+        return preset + userOffset;
     }, [isSameSyncTarget, activeSyncTarget, activeOffsetSeconds]);
 
     const persistOffsetForTarget = useCallback((target, offsetSeconds, source) => {
@@ -1287,8 +1291,9 @@ export default function Worlds() {
             dayIdx: lastJumpContext.dayIdx,
             broadcastId: lastJumpContext.broadcastId,
         };
-        const calibratedOffset = Math.round(lastJumpContext.baseJumpSeconds - video.currentTime);
-        persistOffsetForTarget(calibrationTarget, calibratedOffset, 'calibrated');
+        const totalOffset = Math.round(lastJumpContext.baseJumpSeconds - video.currentTime);
+        const preset = getWorldsSyncPresetOffset(calibrationTarget);
+        persistOffsetForTarget(calibrationTarget, totalOffset - preset, 'calibrated');
         setOffsetInputInvalid(false);
     }, [canCalibrateCurrentFrame, lastJumpContext, program, year, persistOffsetForTarget]);
 

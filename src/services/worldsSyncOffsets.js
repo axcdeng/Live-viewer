@@ -4,6 +4,39 @@ export const SYNC_SCOPE_DAY = 'day';
 export const SYNC_SCOPE_DIVISION = 'division';
 const DEFAULT_SCOPE = SYNC_SCOPE_DIVISION;
 
+// Baseline calibration measured by hand per division. Applied silently under
+// any user offset so jumps land accurately out of the box; the UI still shows
+// 00:00 and user adjustments stack on top (effective = preset + user).
+// Structure: WORLDS_SYNC_PRESETS[program][year][divisionName] = seconds
+//   or { allDays: seconds, days: { [dayIdx]: seconds } } for per-day overrides.
+const WORLDS_SYNC_PRESETS = {
+    'V5RC HS': {
+        '2026': {
+            Arts: 0,
+            Design: -47,
+            Engineering: -50,
+            Innovate: -55,
+            Math: -51,
+            Opportunity: -50,
+            Research: -49,
+            Science: -41,
+            Spirit: -47,
+            Technology: -48,
+        },
+    },
+};
+
+export function getWorldsSyncPresetOffset(target) {
+    if (!target?.program || !target?.year || !target?.divisionName) return 0;
+    const entry = WORLDS_SYNC_PRESETS[target.program]?.[target.year]?.[target.divisionName];
+    if (entry == null) return 0;
+    if (typeof entry === 'number') return entry;
+    if (target.dayIdx !== undefined && entry.days && entry.days[target.dayIdx] != null) {
+        return entry.days[target.dayIdx];
+    }
+    return entry.allDays ?? 0;
+}
+
 function readStore() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
