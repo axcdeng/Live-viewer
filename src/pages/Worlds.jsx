@@ -3,8 +3,9 @@ import Hls from 'hls.js';
 import { useQueryState } from 'nuqs';
 import {
     Tv, Globe, ChevronDown,
-    Loader, Play, Zap, Trophy, Users, Medal, Search,
+    Loader, Play, Pause, Zap, Trophy, Users, Medal, Search,
     Rewind, FastForward, RotateCcw, RotateCw, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, Info,
+    Volume2, VolumeX, Maximize, Minimize,
 } from 'lucide-react';
 import WordPressHeader from '../components/WordPressHeader';
 import JumperMobileBanner from '../components/JumperMobileBanner';
@@ -165,10 +166,30 @@ function truncateLabel(label, maxLength = 26) {
     return label.length > maxLength ? `${label.slice(0, maxLength - 1)}…` : label;
 }
 
+function formatTimecode(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+    const s = Math.floor(seconds);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = (n) => n.toString().padStart(2, '0');
+    return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
 function HlsPlayer({ src, seekRequest, mediaRef }) {
     const fallbackVideoRef = useRef(null);
     const videoRef = mediaRef ?? fallbackVideoRef;
     const hlsRef = useRef(null);
+    const wrapperRef = useRef(null);
+    const hideTimeoutRef = useRef(null);
+
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [muted, setMuted] = useState(false);
+    const [volume, setVolume] = useState(1);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [controlsVisible, setControlsVisible] = useState(true);
 
     useEffect(() => {
         const video = videoRef.current;
@@ -198,7 +219,161 @@ function HlsPlayer({ src, seekRequest, mediaRef }) {
         else video.addEventListener('loadedmetadata', doSeek, { once: true });
     }, [seekRequest]);
 
-    return <video ref={videoRef} controls className="w-full h-full bg-black" style={{ display: 'block' }} />;
+    // Sync player state from the video element (so custom controls stay current
+    // when something outside this component toggles play/pause/seek/volume).
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+        const onPlay = () => setIsPlaying(true);
+        const onPause = () => setIsPlaying(false);
+        const onTime = () => setCurrentTime(video.currentTime);
+        const onMeta = () => setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+        const onVol = () => { setMuted(video.muted); setVolume(video.volume); };
+        video.addEventListener('play', onPlay);
+        video.addEventListener('pause', onPause);
+        video.addEventListener('timeupdate', onTime);
+        video.addEventListener('loadedmetadata', onMeta);
+        video.addEventListener('durationchange', onMeta);
+        video.addEventListener('volumechange', onVol);
+        setMuted(video.muted);
+        setVolume(video.volume);
+        return () => {
+            video.removeEventListener('play', onPlay);
+            video.removeEventListener('pause', onPause);
+            video.removeEventListener('timeupdate', onTime);
+            video.removeEventListener('loadedmetadata', onMeta);
+            video.removeEventListener('durationchange', onMeta);
+            video.removeEventListener('volumechange', onVol);
+        };
+    }, []);
+
+    useEffect(() => {
+        const onFs = () => setIsFullscreen(document.fullscreenElement === wrapperRef.current);
+        document.addEventListener('fullscreenchange', onFs);
+        return () => document.removeEventListener('fullscreenchange', onFs);
+    }, []);
+
+    const scheduleHide = useCallback(() => {
+        if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+        hideTimeoutRef.current = setTimeout(() => {
+            const v = videoRef.current;
+            if (v && !v.paused) setControlsVisible(false);
+        }, 2500);
+    }, []);
+
+    const showControls = useCallback(() => {
+        setControlsVisible(true);
+        scheduleHide();
+    }, [scheduleHide]);
+
+    const togglePlay = useCallback(() => {
+        const v = videoRef.current;
+        if (!v) return;
+        if (v.paused) v.play().catch(() => {});
+        else v.pause();
+    }, []);
+
+    const toggleMute = useCallback(() => {
+        const v = videoRef.current;
+        if (!v) return;
+        v.muted = !v.muted;
+    }, []);
+
+    const toggleFullscreen = useCallback(() => {
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        } else {
+            wrapperRef.current?.requestFullscreen?.().catch(() => {});
+        }
+    }, []);
+
+    const onScrub = (e) => {
+        const v = videoRef.current;
+        if (!v) return;
+        v.currentTime = Number(e.target.value);
+    };
+
+    const onVolumeInput = (e) => {
+        const v = videoRef.current;
+        if (!v) return;
+        const next = Number(e.target.value);
+        v.volume = next;
+        v.muted = next === 0;
+    };
+
+    const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+    const volumePct = Math.round((muted ? 0 : volume) * 100);
+
+    return (
+        <div
+            ref={wrapperRef}
+            className="relative w-full h-full bg-black select-none"
+            onMouseMove={showControls}
+            onMouseLeave={() => { const v = videoRef.current; if (v && !v.paused) setControlsVisible(false); }}
+        >
+            <video
+                ref={videoRef}
+                className="w-full h-full bg-black"
+                style={{ display: 'block' }}
+                onClick={togglePlay}
+                playsInline
+            />
+
+            <div
+                className={`pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent h-24 transition-opacity duration-200 ${controlsVisible || !isPlaying ? 'opacity-100' : 'opacity-0'}`}
+            />
+
+            <div
+                className={`absolute inset-x-0 bottom-0 px-3 pb-2 pt-1 transition-opacity duration-200 ${controlsVisible || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <input
+                    type="range"
+                    min={0}
+                    max={duration || 0}
+                    step={0.1}
+                    value={Math.min(currentTime, duration || 0)}
+                    onChange={onScrub}
+                    aria-label="Seek"
+                    className="w-full h-1.5 cursor-pointer appearance-none rounded-full outline-none"
+                    style={{ background: `linear-gradient(to right, #4FCEEC ${progressPct}%, rgba(255,255,255,0.3) ${progressPct}%)` }}
+                />
+
+                <div className="flex items-center gap-2 mt-1 text-white">
+                    <button onClick={togglePlay} className="p-1.5 hover:bg-white/10 rounded-md transition-colors" title={isPlaying ? 'Pause (k)' : 'Play (k)'}>
+                        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    </button>
+
+                    <span className="text-[11px] font-mono tabular-nums text-gray-200">
+                        {formatTimecode(currentTime)} / {formatTimecode(duration)}
+                    </span>
+
+                    <div className="group/vol flex items-center gap-1">
+                        <button onClick={toggleMute} className="p-1.5 hover:bg-white/10 rounded-md transition-colors" title={muted ? 'Unmute (m)' : 'Mute (m)'}>
+                            {muted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                        </button>
+                        <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={muted ? 0 : volume}
+                            onChange={onVolumeInput}
+                            aria-label="Volume"
+                            className="w-0 group-hover/vol:w-16 focus:w-16 h-1 cursor-pointer appearance-none rounded-full outline-none transition-all overflow-hidden"
+                            style={{ background: `linear-gradient(to right, #fff ${volumePct}%, rgba(255,255,255,0.3) ${volumePct}%)` }}
+                        />
+                    </div>
+
+                    <div className="flex-1" />
+
+                    <button onClick={toggleFullscreen} className="p-1.5 hover:bg-white/10 rounded-md transition-colors" title={isFullscreen ? 'Exit fullscreen (f)' : 'Fullscreen (f)'}>
+                        {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 function PlaybackControls({ canControl, canSync, onSeek, onSynced }) {
@@ -1050,6 +1225,50 @@ export default function Worlds() {
         const video = playerVideoRef.current;
         if (!video || !Number.isFinite(video.currentTime)) return;
         video.currentTime = Math.max(0, video.currentTime + seconds);
+    }, []);
+
+    // YouTube-style keyboard shortcuts: ←/→ ±5s, J/L ±10s, K or Space play/pause,
+    // M mute, F fullscreen, 0–9 seek to that decile.
+    useEffect(() => {
+        const onKeyDown = (e) => {
+            if (e.repeat) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+
+            const video = playerVideoRef.current;
+            if (!video) return;
+
+            const key = e.key;
+            const seekBy = (delta) => {
+                if (!Number.isFinite(video.currentTime)) return;
+                video.currentTime = Math.max(0, video.currentTime + delta);
+            };
+
+            if (key === 'ArrowLeft') { seekBy(-5); e.preventDefault(); return; }
+            if (key === 'ArrowRight') { seekBy(5); e.preventDefault(); return; }
+            if (key === 'j' || key === 'J') { seekBy(-10); e.preventDefault(); return; }
+            if (key === 'l' || key === 'L') { seekBy(10); e.preventDefault(); return; }
+            if (key === 'k' || key === 'K' || key === ' ') {
+                if (video.paused) video.play().catch(() => {});
+                else video.pause();
+                e.preventDefault();
+                return;
+            }
+            if (key === 'm' || key === 'M') { video.muted = !video.muted; e.preventDefault(); return; }
+            if (key === 'f' || key === 'F') {
+                if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+                else video.parentElement?.requestFullscreen?.().catch(() => {});
+                e.preventDefault();
+                return;
+            }
+            if (/^[0-9]$/.test(key) && Number.isFinite(video.duration)) {
+                video.currentTime = video.duration * (Number(key) / 10);
+                e.preventDefault();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
     }, []);
 
     const isSameSyncTarget = useCallback((a, b) => (
