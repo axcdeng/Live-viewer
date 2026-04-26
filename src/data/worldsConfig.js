@@ -18,9 +18,13 @@ const HS_DIVISIONS = [
     'Opportunity', 'Research', 'Science', 'Spirit', 'Technology',
 ];
 
-const MS_DIVISIONS = [
+const MS_DIVISIONS_2025 = [
     // VRC MS only — excludes JROTC/VURC divisions also on this channel
     'Design', 'Engineering', 'Innovate', 'Opportunity', 'Research', 'Spirit',
+];
+
+const MS_DIVISIONS_2026 = [
+    'Arts', 'Engineering', 'Innovate', 'Math', 'Science', 'Spirit', 'Technology',
 ];
 
 export const WORLDS_CONFIG = {
@@ -39,7 +43,7 @@ export const WORLDS_CONFIG = {
             sku: 'RE-V5RC-24-8910',
             eventStart: '2025-05-09',
             eventEnd: '2025-05-11',
-            divisions: MS_DIVISIONS,
+            divisions: MS_DIVISIONS_2025,
             numDays: 3,
             broadcastOverrides: {},
         },
@@ -59,7 +63,7 @@ export const WORLDS_CONFIG = {
             sku: null,
             eventStart: '2026-04-25',
             eventEnd: '2026-04-27',
-            divisions: MS_DIVISIONS,
+            divisions: MS_DIVISIONS_2026,
             numDays: 3,
             broadcastOverrides: {},
         },
