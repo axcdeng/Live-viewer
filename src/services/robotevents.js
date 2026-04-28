@@ -328,16 +328,19 @@ export const findWorldsEvent = async (program, year) => {
         });
 
         const events = res.data.data ?? [];
+        const isVURC = program === 'VURC';
         const isHS = program === 'V5RC HS';
 
-        // Filter to VRC/V5RC world-level events only.
+        // Filter to world-level events for the requested program family.
         // RobotEvents may also return local "Worlds Scrimmage" events in this range,
         // so we exclude scrimmages and prefer the official championship records.
         const worldEvents = events.filter((e) => {
             const name = e.name.toLowerCase();
             const code = (e.program?.code ?? '').toUpperCase();
-            const isVRC = code === 'VRC' || code === 'V5RC';
-            return isVRC && name.includes('world');
+            const matchesProgram = isVURC
+                ? (code === 'VURC' || code === 'VEXU')
+                : (code === 'VRC' || code === 'V5RC');
+            return matchesProgram && name.includes('world');
         });
 
         if (!worldEvents.length) return null;
@@ -356,11 +359,13 @@ export const findWorldsEvent = async (program, year) => {
             ? championshipEvents
             : (nonScrimmageEvents.length ? nonScrimmageEvents : worldEvents);
 
-        const exactGradeMatch = candidates.find((e) => {
-            const name = e.name.toLowerCase();
-            return isHS ? name.includes('high school') : name.includes('middle school');
-        });
-        if (exactGradeMatch) return exactGradeMatch;
+        if (!isVURC) {
+            const exactGradeMatch = candidates.find((e) => {
+                const name = e.name.toLowerCase();
+                return isHS ? name.includes('high school') : name.includes('middle school');
+            });
+            if (exactGradeMatch) return exactGradeMatch;
+        }
 
         return [...candidates].sort((a, b) => {
             const aDivisions = a.divisions?.length ?? 0;

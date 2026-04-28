@@ -27,6 +27,14 @@ const MS_DIVISIONS_2026 = [
     'Arts', 'Engineering', 'Innovate', 'Math', 'Science', 'Spirit', 'Technology',
 ];
 
+const VURC_DIVISIONS_2025 = [
+    'Math', 'Technology',
+];
+
+const VURC_DIVISIONS_2026 = [
+    'Design', 'Opportunity', 'Research',
+];
+
 export const WORLDS_CONFIG = {
     '2025': {
         'V5RC HS': {
@@ -44,6 +52,15 @@ export const WORLDS_CONFIG = {
             eventStart: '2025-05-09',
             eventEnd: '2025-05-11',
             divisions: MS_DIVISIONS_2025,
+            numDays: 3,
+            broadcastOverrides: {},
+        },
+        'VURC': {
+            channelId: 'yignzh2p52kbstxrrsl8',
+            sku: null,
+            eventStart: '2025-05-09',
+            eventEnd: '2025-05-11',
+            divisions: VURC_DIVISIONS_2025,
             numDays: 3,
             broadcastOverrides: {},
         },
@@ -67,10 +84,19 @@ export const WORLDS_CONFIG = {
             numDays: 3,
             broadcastOverrides: {},
         },
+        'VURC': {
+            channelId: 'yignzh2p52kbstxrrsl8',
+            sku: null,
+            eventStart: '2026-04-25',
+            eventEnd: '2026-04-27',
+            divisions: VURC_DIVISIONS_2026,
+            numDays: 3,
+            broadcastOverrides: {},
+        },
     },
 };
 
-export const WORLDS_PROGRAMS = ['V5RC HS', 'V5RC MS'];
+export const WORLDS_PROGRAMS = ['V5RC HS', 'V5RC MS', 'VURC'];
 export const WORLDS_YEARS = ['2026', '2025'];
 
 export function getProgConfig(year, program) {
