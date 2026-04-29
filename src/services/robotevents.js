@@ -390,6 +390,59 @@ export const findWorldsEvent = async (program, year) => {
     }
 };
 
+// Locate which division of a Worlds event a team belongs to. Used by the
+// Find Team flow on the Worlds page so users don't have to know the
+// division up front.
+//
+// Strategy: resolve the team at the event (number is unique within the
+// event's program family), then probe each division's match list with a
+// team filter — the first non-empty division is the team's home. Falls
+// back to rankings, which still indicates assignment if the schedule
+// hasn't been posted yet.
+export const findTeamDivisionAtEvent = async (event, teamNumber) => {
+    if (!event?.id || !teamNumber) return null;
+    const client = getClient();
+    const number = teamNumber.trim().toUpperCase();
+    if (!number) return null;
+
+    let team = null;
+    try {
+        const res = await client.get(`/events/${event.id}/teams`, {
+            params: { 'number[]': [number], per_page: 5 },
+        });
+        const list = res.data?.data ?? [];
+        team = list.find((t) => (t.number ?? '').toUpperCase() === number) ?? list[0] ?? null;
+    } catch {
+        // ignore — team lookup failures fall through to "not found"
+    }
+    if (!team) return null;
+
+    const divisions = event.divisions ?? [];
+    if (!divisions.length) return { team, division: null };
+
+    const probe = async (path) => Promise.all(divisions.map(async (d) => {
+        try {
+            const r = await client.get(
+                `/events/${event.id}/divisions/${d.id}/${path}`,
+                { params: { 'team[]': [team.id], per_page: 1 } }
+            );
+            return (r.data?.data ?? []).length > 0 ? d : null;
+        } catch {
+            return null;
+        }
+    }));
+
+    const matchHits = await probe('matches');
+    let division = matchHits.find((d) => d !== null) ?? null;
+
+    if (!division) {
+        const rankingHits = await probe('rankings');
+        division = rankingHits.find((d) => d !== null) ?? null;
+    }
+
+    return { team, division };
+};
+
 export const getEventsForTeam = async (teamId, seasonIds = null) => {
     const client = getClient();
     try {

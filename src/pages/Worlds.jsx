@@ -11,7 +11,7 @@ import WordPressHeader from '../components/WordPressHeader';
 import JumperMobileBanner from '../components/JumperMobileBanner';
 import { WORLDS_PROGRAMS, WORLDS_YEARS, getProgConfig } from '../data/worldsConfig';
 import { fetchChannelBroadcasts, groupBroadcasts, resolveBroadcast, fetchBroadcastPlaylist } from '../services/boxcast';
-import { getEventBySku, findWorldsEvent, getMatchesForEvent, getRankingsForEvent } from '../services/robotevents';
+import { getEventBySku, findWorldsEvent, getMatchesForEvent, getRankingsForEvent, findTeamDivisionAtEvent } from '../services/robotevents';
 import { getMatchDayIndex, inferMatchDayFromContext } from '../utils/streamMatching';
 import {
     getWorldsSyncOffset,
@@ -781,6 +781,8 @@ export default function Worlds() {
 
     // Find Team tab state
     const [findTeamInput, setFindTeamInput] = useState('');
+    const [findTeamLookupLoading, setFindTeamLookupLoading] = useState(false);
+    const [findTeamLookupError, setFindTeamLookupError] = useState(null);
 
     const [error, setError] = useState(null);
 
@@ -1141,6 +1143,47 @@ export default function Worlds() {
         const trimmed = value.trim();
         setUrlFind(trimmed ? trimmed : null, { history: 'replace' });
     }, [setUrlFind]);
+
+    const handleFindTeamSubmit = useCallback(async (rawInput) => {
+        const trimmed = (rawInput ?? '').trim();
+        if (!trimmed) return;
+        setFindTeamLookupError(null);
+
+        if (selectedDivName) {
+            setFindTeamQueryState(trimmed);
+            return;
+        }
+
+        if (!worldsEvent?.id) {
+            setFindTeamLookupError('Event not loaded yet — try again in a moment.');
+            return;
+        }
+
+        setFindTeamLookupLoading(true);
+        try {
+            const result = await findTeamDivisionAtEvent(worldsEvent, trimmed);
+            if (!result?.team) {
+                setFindTeamLookupError(`Team ${trimmed.toUpperCase()} not found at ${program} Worlds ${year}.`);
+                return;
+            }
+            if (!result.division) {
+                setFindTeamLookupError(`Found team ${trimmed.toUpperCase()} but couldn't determine its division.`);
+                return;
+            }
+            const reName = result.division.name.toLowerCase();
+            const matched = divisionNames.find((dn) => reName.includes(dn.toLowerCase()));
+            if (!matched) {
+                setFindTeamLookupError(`Division "${result.division.name}" isn't configured for streaming.`);
+                return;
+            }
+            setUrlDivision(matched, { history: 'push' });
+            setFindTeamQueryState(trimmed);
+        } catch (err) {
+            setFindTeamLookupError('Lookup failed: ' + (err?.message ?? 'unknown error'));
+        } finally {
+            setFindTeamLookupLoading(false);
+        }
+    }, [selectedDivName, worldsEvent, program, year, divisionNames, setUrlDivision, setFindTeamQueryState]);
 
     const setRankSearchState = useCallback((value) => {
         const trimmed = value.trim();
@@ -1737,27 +1780,31 @@ export default function Worlds() {
                                             <input
                                                 type="text"
                                                 value={findTeamInput}
-                                                onChange={(e) => setFindTeamInput(e.target.value)}
+                                                onChange={(e) => { setFindTeamInput(e.target.value); setFindTeamLookupError(null); }}
                                                 placeholder="Team number (e.g., 8977A)"
                                                 className="flex-1 bg-black border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
-                                                onKeyDown={(e) => e.key === 'Enter' && setFindTeamQueryState(findTeamInput)}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleFindTeamSubmit(findTeamInput)}
+                                                disabled={findTeamLookupLoading}
                                             />
                                             <button
-                                                onClick={() => setFindTeamQueryState(findTeamInput)}
-                                                disabled={!findTeamInput.trim() || !selectedDivName}
-                                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-3 py-1.5 rounded-lg font-bold text-xs transition-colors"
+                                                onClick={() => handleFindTeamSubmit(findTeamInput)}
+                                                disabled={!findTeamInput.trim() || findTeamLookupLoading}
+                                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-3 py-1.5 rounded-lg font-bold text-xs transition-colors flex items-center gap-1"
                                             >
+                                                {findTeamLookupLoading && <Loader className="w-3 h-3 animate-spin" />}
                                                 Search
                                             </button>
                                         </div>
-                                        {!selectedDivName && (
-                                            <p className="text-[11px] text-gray-600">Select a division first to search for team matches.</p>
-                                        )}
+                                        {findTeamLookupError ? (
+                                            <p className="text-[11px] text-red-400">{findTeamLookupError}</p>
+                                        ) : !selectedDivName ? (
+                                            <p className="text-[11px] text-gray-600">Search a team and it will auto-find division.</p>
+                                        ) : null}
                                     </div>
                                     <div className="overflow-y-auto h-[520px] px-4 pb-4">
                                         {findTeamQuery && findTeamMatches.length > 0 ? (
                                             <div className="space-y-6 pt-4">
-                                                <p className="text-xs text-gray-500 mb-3">{findTeamMatches.length} matches for <span className="text-[#4FCEEC] font-bold">{findTeamQuery.toUpperCase()}</span></p>
+                                                <p className="text-xs text-gray-500 mb-3">{findTeamMatches.length} matches for <span className="text-[#4FCEEC] font-bold">{findTeamQuery.toUpperCase()}</span> in <span className="text-gray-300">{selectedDivName}</span></p>
                                                 {groupedFindTeamMatches.map((group) => (
                                                     <div key={group.dayIndex}>
                                                         <div className="flex items-center gap-2 mb-2 sticky top-0 bg-gray-900/95 backdrop-blur py-2 z-10 -mx-4 px-4">
@@ -1780,6 +1827,11 @@ export default function Worlds() {
                                                         </div>
                                                     </div>
                                                 ))}
+                                            </div>
+                                        ) : findTeamLookupLoading || (findTeamQuery && matchesLoading) ? (
+                                            <div className="h-full flex flex-col items-center justify-center text-gray-500 space-y-2">
+                                                <Loader className="w-5 h-5 animate-spin" />
+                                                <p className="text-sm">{findTeamLookupLoading ? 'Finding division…' : 'Loading matches…'}</p>
                                             </div>
                                         ) : findTeamQuery ? (
                                             <div className="h-full flex flex-col items-center justify-center text-gray-500 space-y-2">
