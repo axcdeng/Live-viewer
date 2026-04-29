@@ -35,6 +35,14 @@ const VURC_DIVISIONS_2026 = [
     'Design', 'Opportunity', 'Research',
 ];
 
+const VIQRC_ES_DIVISIONS = [
+    'Arts', 'Engineering', 'Math', 'Science', 'Technology',
+];
+
+const VIQRC_MS_DIVISIONS = [
+    'Design', 'Innovate', 'Opportunity', 'Research', 'Spirit',
+];
+
 export const WORLDS_CONFIG = {
     '2025': {
         'V5RC HS': {
@@ -61,6 +69,24 @@ export const WORLDS_CONFIG = {
             eventStart: '2025-05-09',
             eventEnd: '2025-05-11',
             divisions: VURC_DIVISIONS_2025,
+            numDays: 3,
+            broadcastOverrides: {},
+        },
+        'VIQRC ES': {
+            channelId: 'forwjofkekkjndq5gdps',
+            sku: null,
+            eventStart: '2025-05-12',
+            eventEnd: '2025-05-14',
+            divisions: VIQRC_ES_DIVISIONS,
+            numDays: 3,
+            broadcastOverrides: {},
+        },
+        'VIQRC MS': {
+            channelId: 'sooczxjv6zfijyjnw3yn',
+            sku: null,
+            eventStart: '2025-05-12',
+            eventEnd: '2025-05-14',
+            divisions: VIQRC_MS_DIVISIONS,
             numDays: 3,
             broadcastOverrides: {},
         },
@@ -93,10 +119,28 @@ export const WORLDS_CONFIG = {
             numDays: 3,
             broadcastOverrides: {},
         },
+        'VIQRC ES': {
+            channelId: 'forwjofkekkjndq5gdps',
+            sku: null,
+            eventStart: '2026-04-28',
+            eventEnd: '2026-04-30',
+            divisions: VIQRC_ES_DIVISIONS,
+            numDays: 3,
+            broadcastOverrides: {},
+        },
+        'VIQRC MS': {
+            channelId: 'sooczxjv6zfijyjnw3yn',
+            sku: null,
+            eventStart: '2026-04-28',
+            eventEnd: '2026-04-30',
+            divisions: VIQRC_MS_DIVISIONS,
+            numDays: 3,
+            broadcastOverrides: {},
+        },
     },
 };
 
-export const WORLDS_PROGRAMS = ['V5RC HS', 'V5RC MS', 'VURC'];
+export const WORLDS_PROGRAMS = ['V5RC HS', 'V5RC MS', 'VURC', 'VIQRC ES', 'VIQRC MS'];
 export const WORLDS_YEARS = ['2026', '2025'];
 
 export function getProgConfig(year, program) {

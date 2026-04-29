@@ -316,6 +316,21 @@ export const getActiveSeasons = async () => {
 // Search for a VEX Worlds Championship event by program and year.
 // Used by the Worlds page to load the correct RobotEvents event without
 // requiring a hardcoded SKU. Falls back gracefully if not found.
+const PROGRAM_CODES = {
+    'V5RC HS':  ['VRC', 'V5RC'],
+    'V5RC MS':  ['VRC', 'V5RC'],
+    'VURC':     ['VURC', 'VEXU'],
+    'VIQRC ES': ['VIQRC', 'VIQC'],
+    'VIQRC MS': ['VIQRC', 'VIQC'],
+};
+
+const PROGRAM_GRADE_KEYWORD = {
+    'V5RC HS':  'high school',
+    'V5RC MS':  'middle school',
+    'VIQRC ES': 'elementary',
+    'VIQRC MS': 'middle school',
+};
+
 export const findWorldsEvent = async (program, year) => {
     const client = getClient();
     try {
@@ -328,8 +343,8 @@ export const findWorldsEvent = async (program, year) => {
         });
 
         const events = res.data.data ?? [];
-        const isVURC = program === 'VURC';
-        const isHS = program === 'V5RC HS';
+        const programCodes = PROGRAM_CODES[program] ?? PROGRAM_CODES['V5RC HS'];
+        const gradeKeyword = PROGRAM_GRADE_KEYWORD[program] ?? null;
 
         // Filter to world-level events for the requested program family.
         // RobotEvents may also return local "Worlds Scrimmage" events in this range,
@@ -337,10 +352,7 @@ export const findWorldsEvent = async (program, year) => {
         const worldEvents = events.filter((e) => {
             const name = e.name.toLowerCase();
             const code = (e.program?.code ?? '').toUpperCase();
-            const matchesProgram = isVURC
-                ? (code === 'VURC' || code === 'VEXU')
-                : (code === 'VRC' || code === 'V5RC');
-            return matchesProgram && name.includes('world');
+            return programCodes.includes(code) && name.includes('world');
         });
 
         if (!worldEvents.length) return null;
@@ -359,11 +371,10 @@ export const findWorldsEvent = async (program, year) => {
             ? championshipEvents
             : (nonScrimmageEvents.length ? nonScrimmageEvents : worldEvents);
 
-        if (!isVURC) {
-            const exactGradeMatch = candidates.find((e) => {
-                const name = e.name.toLowerCase();
-                return isHS ? name.includes('high school') : name.includes('middle school');
-            });
+        if (gradeKeyword) {
+            const exactGradeMatch = candidates.find((e) =>
+                e.name.toLowerCase().includes(gradeKeyword)
+            );
             if (exactGradeMatch) return exactGradeMatch;
         }
 
