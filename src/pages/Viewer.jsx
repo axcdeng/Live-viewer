@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Play, RefreshCw, Loader, History, AlertCircle, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link, RotateCcw, Search, Globe, Github, CheckCircle2, Share2 } from 'lucide-react';
+import { Settings, Play, RefreshCw, Loader, History, AlertCircle, Tv, Zap, ChevronDown, ChevronUp, LayoutList, Star, Link, RotateCcw, Search, Globe, Github, CheckCircle2, Share2, PenLine, Menu, X } from 'lucide-react';
 import YouTube from 'react-youtube';
 import { format } from 'date-fns';
 import { useQueryState } from 'nuqs';
@@ -80,6 +80,218 @@ async function detectOrFallbackStreams(event, divisions) {
     return newStreams;
 }
 
+function getMatchTimestamp(match) {
+    return match?.started || match?.scheduled || null;
+}
+
+function formatMatchLabel(match, { compactQual = false } = {}) {
+    const rawName = match?.name || 'Match';
+    const normalized = rawName.replace(/teamwork/gi, 'Qualification');
+    const lower = normalized.toLowerCase();
+    const isQual = lower.includes('qual') || lower.includes('practice');
+
+    if (compactQual && isQual) {
+        const numberMatch = normalized.match(/(?:qualification|qual|practice)\s*#?\s*(\d+)/i);
+        return String(match?.matchnum ?? numberMatch?.[1] ?? normalized.match(/#\s*(\d+)/)?.[1] ?? normalized);
+    }
+
+    return normalized;
+}
+
+function getTimelineMatches({ allMatches, teamMatches, activeStream, event, multiDivisionMode, activeDivisionId }) {
+    if (!activeStream || !event) return [];
+
+    const sourceMatches = allMatches.length > 0 ? allMatches : teamMatches;
+    if (!sourceMatches.length) return [];
+
+    return sourceMatches
+        .filter((match) => {
+            const timestamp = getMatchTimestamp(match);
+            if (!timestamp) return false;
+
+            if (multiDivisionMode && activeDivisionId && match.division?.id !== activeDivisionId) {
+                return false;
+            }
+
+            const dayIndex = inferMatchDayFromContext(match, sourceMatches, event.start);
+            return activeStream.dayIndex === null || activeStream.dayIndex === undefined || dayIndex === activeStream.dayIndex;
+        })
+        .sort((a, b) => new Date(getMatchTimestamp(a)) - new Date(getMatchTimestamp(b)));
+}
+
+function DrawingOverlay({ enabled, isPlaying }) {
+    const canvasRef = useRef(null);
+    const drawingRef = useRef(false);
+    const hasInkRef = useRef(false);
+    const fadeTimeoutRef = useRef(null);
+    const [opacity, setOpacity] = useState(1);
+
+    const clearCanvas = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasInkRef.current = false;
+        setOpacity(1);
+    };
+
+    const scheduleFade = () => {
+        if (!hasInkRef.current) return;
+        if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+        setOpacity(0);
+        fadeTimeoutRef.current = setTimeout(clearCanvas, 900);
+    };
+
+    const resizeCanvas = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const ratio = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(rect.width * ratio));
+        canvas.height = Math.max(1, Math.floor(rect.height * ratio));
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = '#ff3f46';
+    };
+
+    useEffect(() => {
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        return () => {
+            window.removeEventListener('resize', resizeCanvas);
+            if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (isPlaying) {
+            scheduleFade();
+        } else {
+            if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+            setOpacity(1);
+        }
+    }, [isPlaying]);
+
+    const getPoint = (event) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+        };
+    };
+
+    const handlePointerDown = (event) => {
+        if (!enabled) return;
+        event.preventDefault();
+        if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+        setOpacity(1);
+        const canvas = canvasRef.current;
+        canvas.setPointerCapture(event.pointerId);
+        const ctx = canvas.getContext('2d');
+        const point = getPoint(event);
+        drawingRef.current = true;
+        hasInkRef.current = true;
+        ctx.beginPath();
+        ctx.moveTo(point.x, point.y);
+    };
+
+    const handlePointerMove = (event) => {
+        if (!enabled || !drawingRef.current) return;
+        event.preventDefault();
+        const ctx = canvasRef.current.getContext('2d');
+        const point = getPoint(event);
+        ctx.lineTo(point.x, point.y);
+        ctx.stroke();
+    };
+
+    const handlePointerUp = (event) => {
+        if (!drawingRef.current) return;
+        drawingRef.current = false;
+        canvasRef.current.releasePointerCapture(event.pointerId);
+        if (isPlaying) scheduleFade();
+    };
+
+    return (
+        <canvas
+            ref={canvasRef}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            className={`absolute inset-0 z-20 h-full w-full touch-none transition-opacity duration-700 ${enabled ? 'pointer-events-auto cursor-crosshair' : 'pointer-events-none'}`}
+            style={{ opacity }}
+        />
+    );
+}
+
+function MatchTimeline({ matches, activeStream, currentTime, duration, onSeek, onJumpToMatch }) {
+    const streamStart = activeStream?.streamStartTime;
+    const timelineDuration = Math.max(duration || 0, 1);
+
+    const ticks = streamStart
+        ? matches
+            .map((match) => {
+                const timestamp = getMatchTimestamp(match);
+                const seconds = (new Date(timestamp).getTime() - streamStart) / 1000;
+                if (!Number.isFinite(seconds) || seconds < 0 || seconds > timelineDuration) return null;
+                return {
+                    match,
+                    seconds,
+                    left: Math.min(100, Math.max(0, (seconds / timelineDuration) * 100))
+                };
+            })
+            .filter(Boolean)
+        : [];
+
+    const playheadLeft = Math.min(100, Math.max(0, ((currentTime || 0) / timelineDuration) * 100));
+
+    return (
+        <section
+            className="h-[82px] min-h-[82px] border-t border-gray-800 bg-[#111827] px-3 py-2"
+            onWheel={(event) => {
+                event.preventDefault();
+                onSeek(event.deltaY > 0 ? 15 : -15);
+            }}
+        >
+            <div className="flex items-center justify-between text-[11px] font-mono text-gray-500">
+                <span>{activeStream?.label || 'Timeline'}</span>
+                <span>{ticks.length ? `${ticks.length} matches` : 'No synced match ticks'}</span>
+            </div>
+
+            <div className="relative mt-5 h-7">
+                <div className="absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 bg-gray-700" />
+                <div
+                    className="absolute left-0 top-1/2 h-1 -translate-y-1/2 bg-[#ff4b52]"
+                    style={{ width: `${playheadLeft}%` }}
+                />
+                <div
+                    className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 bg-[#ff4b52]"
+                    style={{ left: `${playheadLeft}%` }}
+                />
+                {ticks.map(({ match, left }, index) => (
+                    <button
+                        key={match.id}
+                        onClick={() => onJumpToMatch(match)}
+                        className="absolute top-1/2 h-8 w-3 -translate-x-1/2 -translate-y-1/2 border-l border-gray-400 text-left"
+                        style={{ left: `${left}%` }}
+                        title={formatMatchLabel(match)}
+                    >
+                        <span
+                            className={`absolute left-1 whitespace-nowrap bg-black px-1 py-0.5 text-[9px] font-bold text-white ${index % 2 === 0 ? '-top-6 -rotate-45' : 'top-4 rotate-45'}`}
+                        >
+                            {formatMatchLabel(match, { compactQual: true })}
+                        </span>
+                    </button>
+                ))}
+            </div>
+        </section>
+    );
+}
+
 function Viewer() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [showEventHistory, setShowEventHistory] = useState(false);
@@ -114,6 +326,7 @@ function Viewer() {
     });
     const hasDeepLinked = useRef(false);
     const isInternalLoading = useRef(false);
+    const previousEventIdRef = useRef(null);
 
     // Form inputs
     const [eventUrl, setEventUrl] = useState('');
@@ -131,6 +344,12 @@ function Viewer() {
     const [expandedMatchId, setExpandedMatchId] = useState(null);
     const [isEventSearchCollapsed, setIsEventSearchCollapsed] = useState(false);
     const [includePastSeasons, setIncludePastSeasons] = useState(false);
+    const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
+    const [isStreamPanelExpanded, setIsStreamPanelExpanded] = useState(false);
+    const [isSourceControlsCollapsed, setIsSourceControlsCollapsed] = useState(false);
+    const [isDrawingEnabled, setIsDrawingEnabled] = useState(false);
+    const [playerStates, setPlayerStates] = useState({});
+    const [activePlayerSnapshot, setActivePlayerSnapshot] = useState({ currentTime: 0, duration: 0 });
 
 
 
@@ -180,6 +399,16 @@ function Viewer() {
         }
     }, [event, eventLoading]);
 
+    useEffect(() => {
+        if (event) {
+            setIsEventSearchCollapsed(true);
+            setIsStreamPanelExpanded(true);
+        } else {
+            setIsEventSearchCollapsed(false);
+            setIsStreamPanelExpanded(false);
+        }
+    }, [event]);
+
     // Dynamic SEO Metadata
     useEffect(() => {
         if (event && event.name) {
@@ -210,6 +439,14 @@ function Viewer() {
             }
         }
     }, [event, streams]);
+
+    useEffect(() => {
+        const eventId = event?.id || null;
+        if (eventId !== previousEventIdRef.current) {
+            previousEventIdRef.current = eventId;
+            setAllMatches([]);
+        }
+    }, [event?.id]);
 
     // Fetch Event Presets on mount
     useEffect(() => {
@@ -570,6 +807,29 @@ function Viewer() {
         return streams.find(s => s.id === activeStreamId) || streams[0] || null;
     };
 
+    useEffect(() => {
+        const player = players[activeStreamId];
+        if (!player) {
+            setActivePlayerSnapshot({ currentTime: 0, duration: 0 });
+            return;
+        }
+
+        const updateSnapshot = () => {
+            try {
+                setActivePlayerSnapshot({
+                    currentTime: typeof player.getCurrentTime === 'function' ? player.getCurrentTime() : 0,
+                    duration: typeof player.getDuration === 'function' ? player.getDuration() : 0
+                });
+            } catch (err) {
+                // YouTube can briefly reject calls while the iframe swaps streams.
+            }
+        };
+
+        updateSnapshot();
+        const interval = setInterval(updateSnapshot, 750);
+        return () => clearInterval(interval);
+    }, [players, activeStreamId]);
+
     // Helper: Calculate event duration and initialize streams
     const initializeStreamsForEvent = async (eventData) => {
         setNoWebcastsFound(false);
@@ -750,7 +1010,7 @@ function Viewer() {
 
     // Effect to fetch all matches when tab is 'matches'
     useEffect(() => {
-        if (activeTab === 'matches' && event && allMatches.length === 0 && !allMatchesLoading) {
+        if (event && allMatches.length === 0 && !allMatchesLoading) {
             const fetchAllMatches = async () => {
                 setAllMatchesLoading(true);
                 try {
@@ -765,7 +1025,7 @@ function Viewer() {
             };
             fetchAllMatches();
         }
-    }, [activeTab, event, allMatches.length, allMatchesLoading]);
+    }, [event, allMatches.length, allMatchesLoading]);
 
     // Effect to fetch teams, rankings, and skills when event changes and tab is 'list'
     useEffect(() => {
@@ -1312,6 +1572,8 @@ function Viewer() {
         setAllMatches([]);
         setActiveStreamId(null);
         setPlayers({});
+        setPlayerStates({});
+        setActivePlayerSnapshot({ currentTime: 0, duration: 0 });
 
         // Reset Form/UI Inputs
         setEventUrl('');
@@ -1330,6 +1592,9 @@ function Viewer() {
         setGlobalSearchQuery('');
         setShowStreamSuccess(false);
         setIsDetecting(false);
+        setIsDrawingEnabled(false);
+        setIsRightPanelOpen(false);
+        setIsSourceControlsCollapsed(false);
 
         // Reset URL Parameters
         setUrlPreset(null);
@@ -1379,49 +1644,81 @@ function Viewer() {
         );
     };
 
+    const activeStream = getActiveStream();
+    const timelineMatches = getTimelineMatches({
+        allMatches,
+        teamMatches: matches,
+        activeStream,
+        event,
+        multiDivisionMode,
+        activeDivisionId
+    });
+    const isActiveVideoPlaying = playerStates[activeStreamId] === 1;
+    const isEventPanelExpanded = !isEventSearchCollapsed;
+
+    const streamManagerContent = event ? (
+        <>
+            {webcastCandidates.length > 0 ? (
+                <div className="space-y-2">
+                    <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-300">
+                        <Tv className="h-4 w-4 text-[#4FCEEC]" />
+                        Livestream URL
+                    </h2>
+                    <WebcastSelector
+                        candidates={webcastCandidates}
+                        onSelect={handleWebcastSelect}
+                        event={event}
+                    />
+                </div>
+            ) : (
+                <StreamManager
+                    event={event}
+                    streams={streams}
+                    onStreamsChange={setStreams}
+                    onWebcastSelect={handleWebcastSelect}
+                    multiDivisionMode={multiDivisionMode}
+                    onMultiDivisionModeChange={setMultiDivisionMode}
+                    activeDivisionId={activeDivisionId}
+                    onActiveDivisionIdChange={setActiveDivisionId}
+                    onSeek={handleSeek}
+                    onJumpToSyncedStart={() => {
+                        const match = matches.find(m => m.id === selectedMatchId);
+                        if (match) {
+                            jumpToMatch(match);
+                        } else {
+                            alert("No match selected to sync back to.");
+                        }
+                    }}
+                    canControl={!!players[activeStreamId]}
+                />
+            )}
+            {noWebcastsFound && !isDetecting && !showStreamSuccess && !streams.some(s => s.videoId) && (
+                <p className="mt-2 text-xs text-yellow-500">
+                    No webcasts found automatically. Paste the URL manually or check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">RobotEvents</a>.
+                </p>
+            )}
+            {showStreamSuccess && (
+                <div className="mt-2 flex items-center gap-2 text-sm font-medium text-green-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Streams found and loaded!</span>
+                </div>
+            )}
+        </>
+    ) : (
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+            <Link className="h-4 w-4" />
+            Load an event to add livestream URLs.
+        </div>
+    );
+
     return (
-        <div className="min-h-screen bg-black text-white font-sans selection:bg-[#4FCEEC] selection:text-black flex flex-col">
+        <div className="h-screen overflow-hidden bg-black text-white font-sans selection:bg-[#4FCEEC] selection:text-black flex flex-col">
             <JumperMobileBanner />
 
             {/* WordPress Header */}
             <header className="bg-gray-900 border-b border-gray-800 z-50 backdrop-blur-md bg-opacity-80 flex-shrink-0">
                 <WordPressHeader />
             </header>
-
-            {/* Floating Controls (Bottom Left) */}
-            <div className="fixed bottom-4 left-4 z-40 flex gap-2">
-                <button
-                    onClick={() => setShowEventHistory(true)}
-                    className="p-3 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm"
-                    title="Event History"
-                >
-                    <History className="w-5 h-5 text-gray-300 hover:text-white" />
-                </button>
-                <button
-                    onClick={() => setIsSettingsOpen(true)}
-                    className="p-3 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm"
-                    title="Settings"
-                >
-                    <Settings className="w-5 h-5 text-gray-300 hover:text-white" />
-                </button>
-                <a
-                    href="https://github.com/axcdeng/Live-viewer"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-3 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm"
-                    title="View on GitHub"
-                >
-                    <Github className="w-5 h-5 text-gray-300 hover:text-white" />
-                </a>
-                <div className="w-px h-8 bg-gray-800 self-center mx-1"></div>
-                <button
-                    onClick={handleClearAll}
-                    className="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm group"
-                    title="Clear All"
-                >
-                    <RotateCcw className="w-5 h-5 text-red-400 group-hover:text-red-300" />
-                </button>
-            </div>
 
             {/* Error Display */}
             {error && (
@@ -1432,13 +1729,13 @@ function Viewer() {
             )}
 
 
-            <main className="flex-1 w-full p-2 sm:p-4 sm:max-w-[1600px] sm:mx-auto">
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-full">
+            <main className="min-h-0 flex-1 w-full overflow-hidden">
+                <div className="grid h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_410px]">
                     {/* Left Column: Stream & Stream Manager */}
-                    <div className="xl:col-span-8 flex flex-col gap-6">
+                    <div className="relative flex min-h-0 flex-col">
                         {/* Stream Player */}
-                        <div className="bg-gray-900 border border-gray-800 p-1 rounded-xl overflow-hidden flex-shrink-0">
-                            <div className="bg-black rounded-lg overflow-hidden aspect-video relative group">
+                        <div className="min-h-0 flex-1 bg-black">
+                            <div className="relative h-full w-full overflow-hidden bg-black group">
                                 {event && streams.length > 0 ? (
                                     streams.map((stream) => (
                                         <div
@@ -1459,6 +1756,9 @@ function Viewer() {
                                                     }}
                                                     onReady={(event) => {
                                                         setPlayers(prev => ({ ...prev, [stream.id]: event.target }));
+                                                    }}
+                                                    onStateChange={(event) => {
+                                                        setPlayerStates(prev => ({ ...prev, [stream.id]: event.data }));
                                                     }}
                                                     className="w-full h-full"
                                                 />
@@ -1484,6 +1784,27 @@ function Viewer() {
                                         </div>
                                     </div>
                                 )}
+
+                                <button
+                                    onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
+                                    className={`absolute right-3 top-3 z-30 border px-2 py-2 transition-colors ${isDrawingEnabled
+                                        ? 'border-red-500 bg-red-500/20 text-red-300'
+                                        : 'border-gray-700 bg-gray-950/70 text-gray-300 hover:bg-gray-800'
+                                        }`}
+                                    title="Pen"
+                                >
+                                    <PenLine className="h-4 w-4" />
+                                </button>
+
+                                <button
+                                    onClick={() => setIsRightPanelOpen(true)}
+                                    className="absolute left-3 top-3 z-30 border border-gray-700 bg-gray-950/70 px-2 py-2 text-gray-300 transition-colors hover:bg-gray-800 lg:hidden"
+                                    title="Open controls"
+                                >
+                                    <Menu className="h-4 w-4" />
+                                </button>
+
+                                <DrawingOverlay enabled={isDrawingEnabled} isPlaying={isActiveVideoPlaying} />
 
                                 {/* Stream Switcher Overlay */}
                                 {streams.length > 1 && (
@@ -1519,7 +1840,7 @@ function Viewer() {
                                         )}
 
                                         {/* Day Switcher (Top Right) */}
-                                        <div className="absolute top-4 right-4 flex gap-2 pointer-events-auto">
+                                        <div className="absolute top-4 right-16 flex gap-2 pointer-events-auto">
                                             {(multiDivisionMode
                                                 ? streams.filter(s => s.divisionId === activeDivisionId && s.videoId)
                                                 : streams.filter(s => s.divisionId === (event?.divisions?.[0]?.id || 1) && s.videoId)
@@ -1541,281 +1862,189 @@ function Viewer() {
                             </div>
                         </div>
 
-                        {/* Stream Manager (Livestream URLs) */}
-                        {/* Stream Manager Controls - Always visible, disabled if no event */}
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                            {event ? (
-                                <>
-                                    {webcastCandidates.length > 0 ? (
-                                        <>
-                                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                                <Tv className="w-5 h-5 text-[#4FCEEC]" />
-                                                Livestream URL (Auto-detected)
-                                            </h2>
-                                            <WebcastSelector
-                                                candidates={webcastCandidates}
-                                                onSelect={handleWebcastSelect}
-                                                event={event}
-                                            />
-                                        </>
-                                    ) : (
-                                        <StreamManager
-                                            event={event}
-                                            streams={streams}
-                                            onStreamsChange={setStreams}
-                                            onWebcastSelect={handleWebcastSelect}
-                                            multiDivisionMode={multiDivisionMode}
-                                            onMultiDivisionModeChange={setMultiDivisionMode}
-                                            activeDivisionId={activeDivisionId}
-                                            onActiveDivisionIdChange={setActiveDivisionId}
-                                            onSeek={handleSeek}
-                                            onJumpToSyncedStart={() => {
-                                                const match = matches.find(m => m.id === selectedMatchId);
-                                                if (match) {
-                                                    jumpToMatch(match);
-                                                } else {
-                                                    alert("No match selected to sync back to.");
-                                                }
-                                            }}
-                                            canControl={!!players[activeStreamId]}
-                                        />
-                                    )}
-                                    {noWebcastsFound && !isDetecting && !showStreamSuccess && !streams.some(s => s.videoId) && (
-                                        <p className="text-yellow-500 text-xs text-center sm:text-left mt-2 animate-fade-in">
-                                            No webcasts found automatically. Please paste the URL manually. <br className="sm:hidden" />
-                                            Check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.
-                                        </p>
-                                    )}
-                                    {showStreamSuccess && (
-                                        <div className="flex items-center justify-center sm:justify-start gap-2 text-green-400 text-sm mt-2 animate-fade-in font-medium">
-                                            <CheckCircle2 className="w-4 h-4" />
-                                            <span>Streams found and loaded!</span>
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                // Empty State for Stream Manager
-                                <div className="space-y-4 opacity-50 pointer-events-none grayscale">
-                                    <div className="flex justify-between items-center">
-                                        <h3 className="text-white font-bold flex items-center gap-2">
-                                            <Tv className="w-5 h-5 text-[#4FCEEC]" />
-                                            Livestream URLs
-                                        </h3>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-400 mb-1.5">Livestream URL</label>
-                                            <input type="text" disabled placeholder="https://youtube.com/..." className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-white" />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                        <MatchTimeline
+                            matches={timelineMatches}
+                            activeStream={activeStream}
+                            currentTime={activePlayerSnapshot.currentTime}
+                            duration={activePlayerSnapshot.duration}
+                            onSeek={handleSeek}
+                            onJumpToMatch={jumpToMatch}
+                        />
+
+                        <div className="flex h-9 min-h-9 items-stretch overflow-x-auto border-t border-gray-800 bg-gray-950">
+                            <button
+                                onClick={() => setShowEventHistory(true)}
+                                className="flex items-center gap-1.5 border-r border-gray-800 px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-gray-900 hover:text-white"
+                            >
+                                <History className="h-3.5 w-3.5" />
+                                History
+                            </button>
+                            <button
+                                onClick={() => setIsSettingsOpen(true)}
+                                className="flex items-center gap-1.5 border-r border-gray-800 px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-gray-900 hover:text-white"
+                            >
+                                <Settings className="h-3.5 w-3.5" />
+                                Settings
+                            </button>
+                            <a
+                                href="https://github.com/axcdeng/Live-viewer"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 border-r border-gray-800 px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-gray-900 hover:text-white"
+                            >
+                                <Github className="h-3.5 w-3.5" />
+                                GitHub
+                            </a>
+                            <a
+                                href="https://forms.gle/R3XS6nXymbLc57RSA"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 border-r border-gray-800 px-3 text-xs font-bold text-gray-400 transition-colors hover:bg-gray-900 hover:text-[#4FCEEC]"
+                            >
+                                <AlertCircle className="h-3.5 w-3.5" />
+                                Bugs
+                            </a>
+                            <button
+                                onClick={handleClearAll}
+                                className="flex items-center gap-1.5 px-3 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/15 hover:text-red-300"
+                            >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                Clear
+                            </button>
                         </div>
                     </div>
 
                     {/* Right Column: Controls */}
-                    <div className="xl:col-span-4 flex flex-col gap-4">
-                        {/* Event Search Section */}
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex-shrink-0">
+                    {isRightPanelOpen && (
+                        <button
+                            className="fixed inset-0 z-30 bg-black/60 lg:hidden"
+                            onClick={() => setIsRightPanelOpen(false)}
+                            title="Close controls"
+                        />
+                    )}
+                    <div className={`fixed inset-y-0 right-0 z-40 flex min-h-0 w-[min(390px,100vw)] translate-x-full flex-col border-l border-gray-800 bg-gray-950 transition-transform lg:static lg:z-auto lg:w-auto lg:translate-x-0 ${isRightPanelOpen ? '!translate-x-0 shadow-2xl shadow-black' : ''}`}>
+                        <div className="flex items-center justify-between border-b border-gray-800 px-2 py-2 lg:hidden">
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Controls</span>
                             <button
-                                onClick={() => setIsEventSearchCollapsed(!isEventSearchCollapsed)}
-                                className="w-full p-4 flex justify-between items-center hover:bg-gray-800/50 transition-colors"
+                                onClick={() => setIsRightPanelOpen(false)}
+                                className="border border-gray-700 bg-black px-2 py-2 text-gray-300"
+                                title="Close controls"
                             >
-                                <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                                    <LayoutList className="w-4 h-4" />
-                                    Find Event
-                                </h2>
-                                <div className="flex items-center gap-3">
-                                    {event && isEventSearchCollapsed && (
-                                        <span className="text-xs text-[#4FCEEC] font-semibold truncate max-w-[150px] sm:max-w-[200px]">
-                                            {event.name}
-                                        </span>
-                                    )}
-                                    {isEventSearchCollapsed ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronUp className="w-4 h-4 text-gray-500" />}
-                                </div>
+                                <X className="h-4 w-4" />
                             </button>
-
-                            <div className={`transition-all duration-300 ${isEventSearchCollapsed ? 'max-h-0 opacity-0 pointer-events-none' : 'max-h-[600px] opacity-100'}`}>
-                                <div className="p-5 pt-0 space-y-4">
-                                    {/* Presets Dropdown */}
-                                    {presets.length > 0 && (
-                                        <div className="space-y-2">
-                                            <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">
-                                                <Star className="w-3 h-3 text-yellow-500" />
-                                                Featured Events
-                                            </label>
-                                            <div className="relative group">
-                                                <select
-                                                    onChange={(e) => {
-                                                        const preset = presets.find(p => p.sku === e.target.value);
-                                                        if (preset) handleLoadPreset(preset);
-                                                    }}
-                                                    value={selectedPresetSku}
-                                                    className="w-full bg-black border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all appearance-none cursor-pointer hover:border-gray-600 shadow-inner"
-                                                >
-                                                    <option value="">Select an event...</option>
-                                                    {presets.map((p, idx) => (
-                                                        <option key={idx} value={p.sku}>{p.label}</option>
-                                                    ))}
-                                                </select>
-                                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 group-hover:text-[#4FCEEC] transition-colors">
-                                                    <ChevronDown className="w-4 h-4" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="space-y-2">
-                                        <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">
-                                            <Link className="w-3 h-3 text-gray-500" />
-                                            Search by URL
-                                        </label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={eventUrl}
-                                                onChange={(e) => {
-                                                    const newUrl = e.target.value;
-                                                    setEventUrl(newUrl);
-                                                    // If input changes, we are no longer strictly following the preset
-                                                    if (urlPreset) setUrlPreset(null);
-                                                    if (selectedPresetSku) setSelectedPresetSku('');
-                                                }}
-                                                placeholder="Paste RobotEvents URL..."
-                                                className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
-                                                onKeyDown={(e) => e.key === 'Enter' && handleEventSearch()}
-                                            />
-                                            <button
-                                                onClick={handleEventSearch}
-                                                disabled={eventLoading}
-                                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2"
-                                            >
-                                                {eventLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {event && (
-                                        <div className="p-3 bg-black border border-gray-700 rounded-lg mt-2">
-                                            <p className="text-white font-semibold text-sm line-clamp-1" title={event.name}>{event.name}</p>
-                                            <p className="text-xs text-gray-400 mt-1">{event.location?.venue}, {event.location?.city}</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
                         </div>
 
-                        {/* Sync Control Bar */}
-                        {event && streams.length > 0 && (
-                            <div className="bg-black/30 border-y border-gray-800 py-1.5 px-3 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sync Mode</span>
-                                    <div className="flex bg-gray-900 rounded-lg p-0.5">
-                                        <button
-                                            onClick={() => setSyncMode(false)}
-                                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${!syncMode
-                                                ? 'bg-gray-700 text-white shadow-sm'
-                                                : 'text-gray-500 hover:text-gray-300'
-                                                }`}
-                                        >
-                                            AUTO
-                                        </button>
-                                        <button
-                                            disabled
-                                            title="Coming Soon"
-                                            className="px-2 py-0.5 text-[10px] font-bold rounded-md transition-all text-gray-600 opacity-50 cursor-not-allowed"
-                                        >
-                                            MANUAL
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {syncMode && (
-                                    (() => {
-                                        // Find first match dynamically for the button label
-                                        const getFirstMatch = () => {
-                                            const activeStream = getActiveStream();
-                                            if (!activeStream) return null;
-                                            const targetDivId = activeStream.divisionId;
-                                            const targetDayIndex = activeStream.dayIndex;
-
-                                            // Use allMatches (entire event) instead of matches (filtered by selected team)
-                                            let relevantMatches = allMatches.length > 0 ? allMatches : matches;
-                                            if (targetDivId && event.divisions && event.divisions.length > 1) {
-                                                relevantMatches = relevantMatches.filter(m => m.division.id === targetDivId);
-                                            }
-
-                                            if (relevantMatches.length === 0) return null;
-
-                                            const eventStart = new Date(event.start);
-                                            const streamDate = new Date(eventStart);
-                                            streamDate.setDate(eventStart.getDate() + targetDayIndex);
-                                            const streamDateStr = streamDate.toISOString().split('T')[0];
-
-                                            return relevantMatches
-                                                .filter(m => m.started && m.started.startsWith(streamDateStr))
-                                                .sort((a, b) => new Date(a.started) - new Date(b.started))[0];
-                                        };
-
-                                        const firstMatch = getFirstMatch();
-
-                                        const handleManualSync = () => {
-                                            const activeStream = getActiveStream();
-                                            const firstMatch = getFirstMatch();
-
-                                            if (activeStream && firstMatch) {
-                                                const player = players[activeStream.id];
-                                                if (player && typeof player.getCurrentTime === 'function') {
-                                                    const currentVidTime = player.getCurrentTime();
-                                                    const matchStartTimeMs = new Date(firstMatch.started).getTime();
-                                                    const calculatedStartTime = matchStartTimeMs - (currentVidTime * 1000);
-
-                                                    console.log("Manual Sync:", {
-                                                        firstMatch: firstMatch.name,
-                                                        matchStart: firstMatch.started,
-                                                        vidTime: currentVidTime,
-                                                        calcStart: new Date(calculatedStartTime).toISOString()
-                                                    });
-
-                                                    const updatedStreams = streams.map(s => {
-                                                        if (s.id === activeStream.id) {
-                                                            return { ...s, streamStartTime: calculatedStartTime };
-                                                        }
-                                                        return s;
-                                                    });
-                                                    setStreams(updatedStreams);
-                                                    setManualSyncConfirmed(true); // Enable jumping
-                                                    alert(`Synced to ${firstMatch.name}! All matches are now aligned.`);
-                                                } else {
-                                                    alert("Video player not ready.");
-                                                }
-                                            } else {
-                                                alert("Could not find a match to sync with.");
-                                            }
-                                        };
-
-                                        return (
+                        <div className="flex-shrink-0 border-b border-gray-800">
+                            {isSourceControlsCollapsed ? (
+                                <button
+                                    onClick={() => setIsSourceControlsCollapsed(false)}
+                                    className="flex h-9 w-full items-center justify-between border-b border-gray-800 bg-black px-2 text-xs font-bold uppercase tracking-wide text-gray-400 transition-colors hover:bg-gray-900 hover:text-white"
+                                    title="Open event and livestream controls"
+                                >
+                                    <span className="flex items-center gap-2">
+                                        <LayoutList className="h-3.5 w-3.5 text-[#4FCEEC]" />
+                                        <Link className="h-3.5 w-3.5 text-[#4FCEEC]" />
+                                        Sources
+                                    </span>
+                                    <ChevronDown className="h-4 w-4" />
+                                </button>
+                            ) : (
+                                <>
+                                    <div className="grid grid-cols-[42px_minmax(0,1fr)]">
+                                        <div className="flex flex-col border-r border-gray-800 bg-black">
                                             <button
-                                                onClick={handleManualSync}
-                                                disabled={!firstMatch}
-                                                className="text-[10px] font-bold bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 disabled:cursor-not-allowed text-black px-2 py-1 rounded transition-colors"
+                                                onClick={() => {
+                                                    setIsEventSearchCollapsed(false);
+                                                    setIsStreamPanelExpanded(false);
+                                                }}
+                                                className={`flex h-10 items-center justify-center transition-colors ${isEventPanelExpanded ? 'bg-gray-900 text-[#4FCEEC]' : 'text-gray-500 hover:bg-gray-900 hover:text-white'}`}
+                                                title="Event picker"
                                             >
-                                                {firstMatch ? `SYNC TO ${firstMatch.name.toUpperCase()}` : 'NO MATCHES FOUND'}
+                                                <LayoutList className="h-4 w-4" />
                                             </button>
-                                        );
-                                    })()
-                                )}
-                            </div>
-                        )}
-                        <div className="flex gap-1 bg-gray-900/50 p-1 rounded-lg flex-shrink-0">
+                                            <button
+                                                onClick={() => {
+                                                    setIsStreamPanelExpanded(true);
+                                                    setIsEventSearchCollapsed(true);
+                                                }}
+                                                className={`flex h-10 items-center justify-center border-t border-gray-800 transition-colors ${isStreamPanelExpanded ? 'bg-gray-900 text-[#4FCEEC]' : 'text-gray-500 hover:bg-gray-900 hover:text-white'}`}
+                                                title="Livestream URLs"
+                                            >
+                                                <Link className="h-4 w-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => setIsSourceControlsCollapsed(true)}
+                                                className="flex h-10 items-center justify-center border-t border-gray-800 text-gray-500 transition-colors hover:bg-gray-900 hover:text-white"
+                                                title="Collapse sources"
+                                            >
+                                                <ChevronUp className="h-3.5 w-3.5" />
+                                            </button>
+                                        </div>
+                                        <div className={`${isEventPanelExpanded ? 'block' : 'hidden'} px-2 py-2`}>
+                                            <div className="grid gap-2">
+                                                {presets.length > 0 && (
+                                                    <div className="relative">
+                                                        <select
+                                                            onChange={(e) => {
+                                                                const preset = presets.find(p => p.sku === e.target.value);
+                                                                if (preset) handleLoadPreset(preset);
+                                                            }}
+                                                            value={selectedPresetSku}
+                                                            className="w-full border border-gray-700 bg-black px-2 py-1.5 pr-7 text-xs text-white outline-none transition-all focus:border-[#4FCEEC]"
+                                                        >
+                                                            <option value="">Featured events...</option>
+                                                            {presets.map((p, idx) => (
+                                                                <option key={idx} value={p.sku}>{p.label}</option>
+                                                            ))}
+                                                        </select>
+                                                        <Star className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-yellow-500" />
+                                                    </div>
+                                                )}
+                                                <div className="flex gap-1.5">
+                                                    <input
+                                                        type="text"
+                                                        value={eventUrl}
+                                                        onChange={(e) => {
+                                                            const newUrl = e.target.value;
+                                                            setEventUrl(newUrl);
+                                                            if (urlPreset) setUrlPreset(null);
+                                                            if (selectedPresetSku) setSelectedPresetSku('');
+                                                        }}
+                                                        placeholder="RobotEvents URL..."
+                                                        className="min-w-0 flex-1 border border-gray-700 bg-black px-2 py-1.5 text-xs text-white outline-none transition-all focus:border-[#4FCEEC]"
+                                                        onKeyDown={(e) => e.key === 'Enter' && handleEventSearch()}
+                                                    />
+                                                    <button
+                                                        onClick={handleEventSearch}
+                                                        disabled={eventLoading}
+                                                        className="bg-[#4FCEEC] px-2.5 py-1.5 text-xs font-bold text-black transition-colors hover:bg-[#3db8d6] disabled:opacity-50"
+                                                    >
+                                                        {eventLoading ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Go'}
+                                                    </button>
+                                                </div>
+                                                {event && (
+                                                    <div className="min-w-0 border border-gray-800 bg-black px-2 py-1.5">
+                                                        <p className="truncate text-xs font-semibold text-white" title={event.name}>{event.name}</p>
+                                                        <p className="truncate text-[10px] text-gray-500">{event.location?.venue}, {event.location?.city}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className={`${isStreamPanelExpanded ? 'block' : 'hidden'} max-h-[36vh] overflow-y-auto px-2 py-2`}>
+                                            {streamManagerContent}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <div className="flex flex-shrink-0 border-b border-gray-800 bg-black">
                             {/* Only show 'Find Team' tab if event is loaded OR it's been explicitly selected (though deprecated in no-event mode) */}
                             {event && (
                                 <button
                                     onClick={() => setActiveTab('search')}
-                                    className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'search'
-                                        ? 'bg-gray-800 text-white shadow-sm'
-                                        : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                                    className={`flex-1 border-r border-gray-800 py-2 text-xs font-bold uppercase tracking-wide transition-all ${activeTab === 'search'
+                                        ? 'bg-gray-900 text-white'
+                                        : 'text-gray-500 hover:bg-gray-900 hover:text-white'
                                         }`}
                                 >
                                     Find Team
@@ -1823,9 +2052,9 @@ function Viewer() {
                             )}
                             <button
                                 onClick={() => setActiveTab('list')}
-                                className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'list'
-                                    ? 'bg-gray-800 text-white shadow-sm'
-                                    : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                                className={`flex-1 border-r border-gray-800 py-2 text-xs font-bold uppercase tracking-wide transition-all ${activeTab === 'list'
+                                    ? 'bg-gray-900 text-white'
+                                    : 'text-gray-500 hover:bg-gray-900 hover:text-white'
                                     }`}
                             >
                                 {event ? 'Team List' : 'Search by Team'}
@@ -1833,9 +2062,9 @@ function Viewer() {
                             {event && (
                                 <button
                                     onClick={() => setActiveTab('matches')}
-                                    className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'matches'
-                                        ? 'bg-gray-800 text-white shadow-sm'
-                                        : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                                    className={`flex-1 py-2 text-xs font-bold uppercase tracking-wide transition-all ${activeTab === 'matches'
+                                        ? 'bg-gray-900 text-white'
+                                        : 'text-gray-500 hover:bg-gray-900 hover:text-white'
                                         }`}
                                 >
                                     Matches
@@ -1844,11 +2073,11 @@ function Viewer() {
                         </div>
 
                         {/* Tab Content Panel */}
-                        <div className="bg-gray-900 border border-gray-800 rounded-xl flex flex-col">
+                        <div className="min-h-0 flex-1 overflow-hidden bg-gray-950 flex flex-col">
                             {activeTab === 'search' ? (
                                 <>
                                     {/* Search Header */}
-                                    <div className="p-5 border-b border-gray-800 space-y-3 flex-shrink-0 bg-gray-900 z-10 rounded-t-xl">
+                                    <div className="p-2 border-b border-gray-800 space-y-2 flex-shrink-0 bg-gray-950 z-10">
                                         <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Find Team</h2>
                                         <div className="flex gap-2">
                                             <input
@@ -1856,19 +2085,19 @@ function Viewer() {
                                                 value={teamNumber}
                                                 onChange={(e) => setTeamNumber(e.target.value)}
                                                 placeholder="Team number (e.g., 8977A)"
-                                                className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
+                                                className="min-w-0 flex-1 bg-black border border-gray-700 px-2 py-1.5 text-xs text-white focus:border-[#4FCEEC] outline-none transition-all"
                                                 onKeyDown={(e) => e.key === 'Enter' && handleTeamSearch()}
                                             />
                                             <button
                                                 onClick={() => handleTeamSearch()}
                                                 disabled={teamLoading || !event}
-                                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2"
+                                                className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-3 py-1.5 font-bold text-xs transition-colors flex items-center gap-2"
                                             >
                                                 {teamLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
                                             </button>
                                         </div>
                                         {team && (
-                                            <div className="p-3 bg-black border border-gray-700 rounded-lg">
+                                            <div className="p-2 bg-black border border-gray-800">
                                                 <div className="flex justify-between items-start">
                                                     <div>
                                                         <p className="text-white font-semibold text-sm">{team.number} - {team.team_name}</p>
@@ -1890,10 +2119,10 @@ function Viewer() {
                                     </div>
 
                                     {/* Matches List */}
-                                    <div className="overflow-y-auto px-4 pb-4 h-[600px]">
+                                    <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
                                         {matches.length > 0 ? (
                                             <div className="space-y-4">
-                                                <div className="flex justify-between items-center sticky top-0 bg-gray-900 pb-2 z-10 pt-4">
+                                                <div className="flex justify-between items-center sticky top-0 bg-gray-950 pb-2 z-10 pt-2">
                                                     <h2 className="text-sm font-bold text-white">Matches</h2>
                                                     <div className="flex items-center gap-3">
                                                         <div className="flex items-center gap-2 text-[10px]">
@@ -1954,7 +2183,7 @@ function Viewer() {
                                                                         ));
 
                                                                         const opponentAlliance = match.alliances?.find(a => a !== alliance);
-                                                                        const matchName = match.name?.replace(/teamwork/gi, 'Qual') || match.name;
+                                                                        const matchName = formatMatchLabel(match);
 
                                                                         // Check if match is available
                                                                         const grayOutReason = getGrayOutReason(match, streams, event?.start);
@@ -2143,14 +2372,14 @@ function Viewer() {
                             ) : activeTab === 'matches' ? (
                                 <>
                                     {/* Matches Tab Header */}
-                                    <div className="p-4 border-b border-gray-800 space-y-3 flex-shrink-0 bg-gray-900 z-10 rounded-t-xl">
+                                    <div className="p-2 border-b border-gray-800 space-y-2 flex-shrink-0 bg-gray-950 z-10">
                                         <div className="flex gap-2">
                                             <input
                                                 type="text"
                                                 value={matchesTabState.search}
                                                 onChange={(e) => setMatchesTabState(prev => ({ ...prev, search: e.target.value }))}
                                                 placeholder="Search matches (e.g. #10, R16, 1698, 11101B)"
-                                                className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
+                                                className="min-w-0 flex-1 bg-black border border-gray-700 px-2 py-1.5 text-xs text-white focus:border-[#4FCEEC] outline-none transition-all"
                                             />
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2">
@@ -2159,7 +2388,7 @@ function Viewer() {
                                                 <button
                                                     key={filterType}
                                                     onClick={() => setMatchesTabState(prev => ({ ...prev, filter: filterType }))}
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${matchesTabState.filter === filterType
+                                                    className={`px-2.5 py-1.5 text-xs font-bold capitalize transition-colors ${matchesTabState.filter === filterType
                                                         ? 'bg-[#4FCEEC] text-black'
                                                         : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
                                                         }`}
@@ -2175,7 +2404,7 @@ function Viewer() {
                                                         <button
                                                             key={div.id}
                                                             onClick={() => setActiveDivisionId(div.id)}
-                                                            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all uppercase whitespace-nowrap ${activeDivisionId === div.id
+                                                            className={`px-2.5 py-1.5 text-[10px] font-bold transition-all uppercase whitespace-nowrap ${activeDivisionId === div.id
                                                                 ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                                                                 : 'bg-gray-800/50 text-gray-500 border border-transparent hover:bg-gray-700'
                                                                 }`}
@@ -2189,7 +2418,7 @@ function Viewer() {
                                     </div>
 
                                     {/* Full Matches List */}
-                                    <div className="overflow-y-auto px-4 pb-4 h-[600px]">
+                                    <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
                                         {allMatchesLoading ? (
                                             <div className="flex justify-center py-8">
                                                 <Loader className="w-8 h-8 animate-spin text-[#4FCEEC]" />
@@ -2246,7 +2475,7 @@ function Viewer() {
                                                 });
 
                                                 return (
-                                                    <div className="space-y-6 pt-4">
+                                                    <div className="space-y-4 pt-2">
                                                         {Object.keys(matchesByDay).sort().map((dayIndex) => {
                                                             const dayMatches = matchesByDay[dayIndex];
                                                             const dayStream = streams.find(s => s.dayIndex === parseInt(dayIndex));
@@ -2254,7 +2483,7 @@ function Viewer() {
 
                                                             return (
                                                                 <div key={dayIndex}>
-                                                                    <div className="flex items-center gap-2 mb-2 sticky top-0 bg-gray-900/95 backdrop-blur py-2 z-10 -mx-4 px-4">
+                                                                    <div className="flex items-center gap-2 mb-2 sticky top-0 bg-gray-950/95 backdrop-blur py-2 z-10 -mx-2 px-2">
                                                                         <div className="flex-1 h-px bg-gray-700"></div>
                                                                         <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">
                                                                             {dayLabel}
@@ -2263,7 +2492,7 @@ function Viewer() {
                                                                     </div>
                                                                     <div className="space-y-2">
                                                                         {dayMatches.map((match) => {
-                                                                            const matchName = match.name?.replace(/teamwork/gi, 'Qual') || match.name;
+                                                                            const matchName = formatMatchLabel(match);
                                                                             const grayOutReason = getGrayOutReason(match, streams, event?.start);
 
                                                                             // Helper to check if a specific team is in this match (for highlighting)
@@ -2279,7 +2508,7 @@ function Viewer() {
                                                                             return (
                                                                                 <div
                                                                                     key={match.id}
-                                                                                    className={`bg-black border rounded-lg p-3 transition-colors ${grayOutReason ? 'border-gray-800 opacity-60' :
+                                                                                    className={`bg-black border p-2 transition-colors ${grayOutReason ? 'border-gray-800 opacity-60' :
                                                                                         selectedMatchId === match.id ? 'border-[#4FCEEC] bg-slate-900' : 'border-gray-800 hover:border-gray-600'
                                                                                         }`}
                                                                                 >
@@ -2399,21 +2628,21 @@ function Viewer() {
                                     />
                                 ) : (
                                     // Global Team Search View (No Event Loaded)
-                                    <div className="flex flex-col h-full">
-                                        <div className="p-4 border-b border-gray-800 space-y-4">
+                                    <div className="flex min-h-0 flex-col h-full">
+                                        <div className="p-2 border-b border-gray-800 space-y-2">
                                             <div className="flex gap-2">
                                                 <input
                                                     type="text"
                                                     value={teamNumber}
                                                     onChange={(e) => setTeamNumber(e.target.value)}
                                                     placeholder="Team Number (e.g. 1698V)"
-                                                    className="flex-1 bg-black border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none"
+                                                    className="min-w-0 flex-1 bg-black border border-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#4FCEEC] outline-none"
                                                     onKeyDown={(e) => e.key === 'Enter' && handleTeamSearch()}
                                                 />
                                                 <button
                                                     onClick={() => handleTeamSearch()}
                                                     disabled={isGlobalSearchLoading}
-                                                    className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-4 py-2 rounded-lg font-bold text-sm"
+                                                    className="bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 text-black px-3 py-1.5 font-bold text-xs"
                                                 >
                                                     {isGlobalSearchLoading ? <Loader className="w-4 h-4 animate-spin" /> : 'Search'}
                                                 </button>
@@ -2432,7 +2661,7 @@ function Viewer() {
                                             </div>
                                         </div>
 
-                                        <div className="flex-1 overflow-y-auto p-2 space-y-2 max-h-[600px]">
+                                        <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-2">
                                             {isGlobalSearchLoading ? (
                                                 <div className="flex justify-center py-8">
                                                     <Loader className="w-8 h-8 animate-spin text-[#4FCEEC]" />
@@ -2459,7 +2688,7 @@ function Viewer() {
                                                                 setEventLoading(false);
                                                             }
                                                         }}
-                                                        className="w-full bg-gray-800/50 hover:bg-gray-800 border border-gray-800 hover:border-[#4FCEEC]/50 rounded-lg p-3 text-left group transition-all"
+                                                        className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-[#4FCEEC]/50 p-2 text-left group transition-all"
                                                     >
                                                         <div className="flex justify-between items-start mb-1">
                                                             <span className="font-bold text-white group-hover:text-[#4FCEEC] line-clamp-1 text-sm">{evt.name}</span>
@@ -2530,29 +2759,6 @@ function Viewer() {
                     onSelectEvent={handleLoadFromHistory}
                 />
 
-                {/* Copyright Footer */}
-                <footer className="hidden sm:block fixed bottom-4 right-4 text-xs text-slate-400 text-center sm:text-right max-w-xs sm:max-w-2xl">
-                    <p className="bg-slate-900/80 backdrop-blur-sm px-4 py-2 rounded-lg border border-slate-700/50">
-                        © 2025 RoboSTEM Foundation |{' '}
-                        <a
-                            href="https://forms.gle/R3XS6nXymbLc57RSA"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-cyan-400 hover:text-cyan-300 transition-colors"
-                        >
-                            Report Bugs
-                        </a>
-                        {' '}| Made with <span className="text-red-500">❤</span> by{' '}
-                        <a
-                            href="https://www.linkedin.com/in/axcdeng/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline hover:opacity-80 transition-opacity"
-                        >
-                            Alexander Deng
-                        </a>
-                    </p>
-                </footer>
             </main>
             <Analytics debug={true} />
         </div>

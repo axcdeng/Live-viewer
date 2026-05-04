@@ -1,8 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Plus, X, Loader, AlertTriangle, Rewind, FastForward, RotateCcw, RotateCw, Play, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, X, Loader, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
 import { getMatchDayIndex } from '../utils/streamMatching';
+
+function getCompactStreamLabel(stream) {
+    if (stream?.date) {
+        return format(new Date(stream.date), 'MMM d');
+    }
+
+    const label = stream?.label || 'Stream';
+    return label.replace(/^Day\s+\d+\s*-\s*/i, '');
+}
 
 /**
  * StreamManager component - Manages multiple livestream inputs
@@ -22,28 +31,6 @@ function StreamManager({
     activeDivisionId,
     onActiveDivisionIdChange
 }) {
-    const [feedback, setFeedback] = useState(null);
-    const feedbackTimeout = useRef(null);
-
-    const triggerFeedback = (text, isPositive = true) => {
-        if (feedbackTimeout.current) clearTimeout(feedbackTimeout.current);
-        setFeedback({ text, isPositive, key: Date.now() });
-        feedbackTimeout.current = setTimeout(() => setFeedback(null), 1000);
-    };
-
-    const handleSeekClick = (seconds) => {
-        onSeek(seconds);
-        const sign = seconds > 0 ? '+' : '-';
-        const absVal = Math.abs(seconds);
-        const text = absVal >= 60 ? `${sign}${absVal / 60}m` : `${sign}${absVal}s`;
-        triggerFeedback(text, seconds > 0);
-    };
-
-    const handleSyncedClick = () => {
-        onJumpToSyncedStart();
-        triggerFeedback('Synced!', true);
-    };
-
     const [loading, setLoading] = useState({});
     const [errors, setErrors] = useState({});
 
@@ -209,183 +196,39 @@ function StreamManager({
         onStreamsChange(filtered);
     };
 
+    const targetDivisionId = multiDivisionMode ? activeDivisionId : (event?.divisions?.[0]?.id || 1);
+    let filteredStreams = streams.filter(s =>
+        s.divisionId === targetDivisionId ||
+        s.divisionId === null ||
+        s.divisionId === undefined
+    );
+
+    if (filteredStreams.length === 0 && streams.length > 0) {
+        console.warn("Stream filter hidden all streams. Falling back to showing all.");
+        filteredStreams = streams;
+    }
+
     return (
-        <div className="space-y-4">
-            {/* Main header row - everything on one line on large screens */}
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-                {/* Left side: Title + Toggle + Division Tabs */}
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0 flex-1">
-                    <h3 className="text-white font-bold flex items-center gap-2 whitespace-nowrap">
-                        <Tv className="w-5 h-5 text-[#4FCEEC]" />
-                        Livestream URLs
-                    </h3>
-
-                    {/* Multi-Division Toggle */}
-                    {event?.divisions?.length > 1 && (
+        <div className="space-y-1">
+            {multiDivisionMode && event?.divisions?.length > 1 && (
+                <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                    {event.divisions.map((div) => (
                         <button
-                            onClick={() => onMultiDivisionModeChange(!multiDivisionMode)}
-                            className={`text-[10px] font-bold px-2 py-1 rounded border transition-all whitespace-nowrap ${multiDivisionMode
-                                ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
-                                : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-400'
+                            key={div.id}
+                            onClick={() => onActiveDivisionIdChange(div.id)}
+                            className={`shrink-0 px-2 py-1 text-[10px] font-bold uppercase ${activeDivisionId === div.id
+                                ? 'bg-[#4FCEEC] text-black'
+                                : 'bg-black text-gray-500 hover:bg-gray-900 hover:text-gray-300'
                                 }`}
-                            title={multiDivisionMode ? "Disable Multi-Division Mode" : "Enable Multi-Division Mode"}
                         >
-                            {multiDivisionMode ? 'DIVISIONS: ON' : 'DIVISIONS: OFF'}
+                            {div.name}
                         </button>
-                    )}
-
-                    {/* Division Switcher Tabs - inline but can wrap */}
-                    {multiDivisionMode && event?.divisions?.length > 1 && (
-                        <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-gray-800/50">
-                            {event.divisions.map((div) => (
-                                <button
-                                    key={div.id}
-                                    onClick={() => onActiveDivisionIdChange(div.id)}
-                                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all uppercase tracking-wider whitespace-nowrap ${activeDivisionId === div.id
-                                        ? 'bg-[#4FCEEC] text-black shadow-lg shadow-[#4FCEEC]/20'
-                                        : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-                                        }`}
-                                >
-                                    {div.name}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    ))}
                 </div>
+            )}
 
-                {/* Right side: Controls - stays on the right */}
-                <div className="flex items-center gap-3 flex-shrink-0">
-                    {/* Playback Controls */}
-                    <div className="flex items-center gap-3">
-                        {/* Playback Controls Container */}
-                        <div className="relative group">
-                            {/* Feedback Overlay */}
-                            {feedback && (
-                                <div
-                                    key={feedback.key}
-                                    className={`absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none px-3 py-1 rounded-full text-[10px] font-bold z-50 animate-feedback-pill shadow-lg border border-white/10 ${feedback.isPositive ? 'bg-[#4FCEEC] text-black' : 'bg-gray-800 text-white'
-                                        }`}
-                                >
-                                    {feedback.text}
-                                </div>
-                            )}
-
-                            <div className={`flex items-center bg-black/40 border border-gray-800 rounded-xl p-1 px-1 transition-all duration-300 ${canControl ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
-                                {/* Back Buttons */}
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(-60)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Back 1m">
-                                        <Rewind className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">1M</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(-30)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Back 30s">
-                                        <ChevronsLeft className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">30S</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(-10)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Back 10s">
-                                        <RotateCcw className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">10S</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(-5)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Back 5s">
-                                        <ChevronLeft className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">5S</span>
-                                </div>
-
-                                <div className="h-4 w-px bg-gray-800 mx-1" />
-
-                                {/* Sync Button */}
-                                <div className="flex flex-col items-center px-1">
-                                    <button onClick={handleSyncedClick} className="p-1 hover:bg-[#4FCEEC]/20 text-[#4FCEEC] rounded-lg transition-colors" title="Jump to Synced Start">
-                                        <Play className="w-3.5 h-3.5 fill-current" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-[#4FCEEC]/70 uppercase tracking-wider -mt-0.5 pointer-events-none">Synced</span>
-                                </div>
-
-                                <div className="h-4 w-px bg-gray-800 mx-1" />
-
-                                {/* Forward Buttons */}
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(5)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Forward 5s">
-                                        <ChevronRight className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">5S</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(10)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Forward 10s">
-                                        <RotateCw className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">10S</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(30)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Forward 30s">
-                                        <ChevronsRight className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">30S</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <button onClick={() => handleSeekClick(60)} className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors" title="Forward 1m">
-                                        <FastForward className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-[7px] font-bold text-gray-500 uppercase tracking-wider -mt-0.5 pointer-events-none">1M</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={addStream}
-                            className="text-xs px-3 py-1.5 bg-[#4FCEEC]/10 hover:bg-[#4FCEEC]/20 text-[#4FCEEC] border border-[#4FCEEC]/20 rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                        >
-                            <Plus className="w-3.5 h-3.5" />
-                            Add Extra Stream
-                        </button>
-
-                        <style>{`
-                            @keyframes feedback-pill {
-                                0% { transform: translate(-50%, 10px); opacity: 0; scale: 0.8; }
-                                15% { transform: translate(-50%, 0); opacity: 1; scale: 1; }
-                                85% { transform: translate(-50%, 0); opacity: 1; scale: 1; }
-                                100% { transform: translate(-50%, -10px); opacity: 0; scale: 0.9; }
-                            }
-                            .animate-feedback-pill {
-                                animation: feedback-pill 1s ease-out forwards;
-                            }
-                            .scrollbar-hide {
-                                -ms-overflow-style: none;
-                                scrollbar-width: none;
-                            }
-                            .scrollbar-hide::-webkit-scrollbar {
-                                display: none;
-                            }
-                        `}</style>
-                    </div>
-                </div>
-            </div>
-
-            <div className="space-y-3">
-                {(() => {
-                    const targetDivisionId = multiDivisionMode ? activeDivisionId : (event?.divisions?.[0]?.id || 1);
-
-                    // Filter streams: Match division ID OR no divisionID (global/backup)
-                    let filteredStreams = streams.filter(s =>
-                        s.divisionId === targetDivisionId ||
-                        s.divisionId === null ||
-                        s.divisionId === undefined
-                    );
-
-                    // Safeguard: If filtration hides everything but we have streams, show them all (or fallback to defaults)
-                    // This prevents "invisible inputs" bug if IDs mismatch
-                    if (filteredStreams.length === 0 && streams.length > 0) {
-                        console.warn("Stream filter hidden all streams. Falling back to showing all.");
-                        filteredStreams = streams;
-                    }
-
-                    return filteredStreams.map((stream) => {
+            <div className="space-y-1">
+                {filteredStreams.map((stream) => {
                         const validation = validateStreamDate(stream);
 
                         return (
@@ -426,8 +269,28 @@ function StreamManager({
                                 )}
                             </div>
                         );
-                    })
-                })()}
+                    })}
+            </div>
+            <div className="flex items-center justify-end gap-1">
+                {event?.divisions?.length > 1 && (
+                    <button
+                        onClick={() => onMultiDivisionModeChange(!multiDivisionMode)}
+                        className={`shrink-0 border px-1.5 py-0.5 text-[9px] font-bold uppercase ${multiDivisionMode
+                            ? 'border-[#4FCEEC]/40 bg-[#4FCEEC]/10 text-[#4FCEEC]'
+                            : 'border-gray-800 bg-black text-gray-500 hover:text-gray-300'
+                            }`}
+                        title={multiDivisionMode ? "Disable Multi-Division Mode" : "Enable Multi-Division Mode"}
+                    >
+                        Div
+                    </button>
+                )}
+                <button
+                    onClick={addStream}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center border border-gray-800 bg-black text-gray-300 transition-colors hover:border-[#4FCEEC]/50 hover:text-[#4FCEEC]"
+                    title="Add extra stream"
+                >
+                    <Plus className="h-3.5 w-3.5" />
+                </button>
             </div>
         </div>
     );
@@ -437,47 +300,46 @@ function StreamManager({
  * Individual stream input component
  */
 function StreamInput({ stream, loading, error, canRemove, onUrlChange, onRemove }) {
+    const status = loading
+        ? 'Loading'
+        : stream.streamStartTime
+            ? 'Synced'
+            : error
+                ? 'Needs sync'
+                : null;
+
     return (
-        <div className="relative">
-            <div className="flex items-center gap-2">
-                <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-400 mb-1.5">
-                        {stream.label}
-                        {loading && (
-                            <span className="ml-2 text-xs text-[#4FCEEC]">
-                                <Loader className="inline w-3 h-3 animate-spin mr-1" />
-                                Loading stream info...
-                            </span>
-                        )}
-                        {stream.streamStartTime && !loading && (
-                            <span className="ml-2 text-xs text-green-400">
-                                ✓ Stream detected
-                            </span>
-                        )}
-                        {error && !loading && (
-                            <span className="ml-2 text-xs text-yellow-400">
-                                ⚠ {error}
-                            </span>
-                        )}
-                    </label>
-                    <input
-                        type="text"
-                        value={stream.url}
-                        onChange={(e) => onUrlChange(e.target.value)}
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all"
-                    />
-                </div>
-                {canRemove && (
-                    <button
-                        onClick={onRemove}
-                        className="p-2 mt-6 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
-                        title="Remove this stream"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
+        <div className="grid grid-cols-[42px_minmax(0,1fr)_28px] items-center gap-0.5 bg-black/40 py-0.5 pr-0.5">
+            <div className="min-w-0">
+                <span className="block truncate text-[9px] font-bold text-gray-300">
+                    {getCompactStreamLabel(stream)}
+                </span>
+                {status && (
+                    <span className={`block truncate text-[7px] font-bold uppercase leading-none ${stream.streamStartTime && !loading ? 'text-green-400' : error ? 'text-yellow-400' : 'text-[#4FCEEC]'}`}>
+                        {loading && <Loader className="mr-1 inline h-2.5 w-2.5 animate-spin" />}
+                        {status}
+                    </span>
                 )}
             </div>
+            <input
+                type="text"
+                value={stream.url}
+                onChange={(e) => onUrlChange(e.target.value)}
+                placeholder="YouTube URL..."
+                title={error || ''}
+                className="h-7 min-w-0 border border-gray-800 bg-black px-1.5 text-xs text-white outline-none transition-all placeholder:text-gray-600 focus:border-[#4FCEEC]"
+            />
+            {canRemove ? (
+                <button
+                    onClick={onRemove}
+                    className="flex h-7 w-7 items-center justify-center border border-red-500/20 bg-red-500/10 text-red-400 transition-colors hover:bg-red-500/20"
+                    title="Remove this stream"
+                >
+                    <X className="h-3.5 w-3.5" />
+                </button>
+            ) : (
+                <div />
+            )}
         </div>
     );
 }
