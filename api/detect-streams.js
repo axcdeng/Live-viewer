@@ -531,7 +531,7 @@ function formatDate(date) {
 
 async function fetchEventDetails(sku, apiKey) {
     try {
-        const response = await fetch(`https://www.robotevents.com/api/v2/events?sku[]=${sku}`, {
+        const response = await fetch(`https://events.vex.com/api/v2/events?sku[]=${sku}`, {
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
                 'Accept': 'application/json'

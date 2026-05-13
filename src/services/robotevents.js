@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE_URL = 'https://www.robotevents.com/api/v2';
+const BASE_URL = 'https://events.vex.com/api/v2';
 const DEFAULT_API_KEY = import.meta.env.VITE_DEFAULT_ROBOTEVENTS_API_KEY;
 
 const getClient = () => {
