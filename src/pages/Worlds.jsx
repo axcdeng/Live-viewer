@@ -190,6 +190,11 @@ function HlsPlayer({ src, seekRequest, mediaRef }) {
     const [volume, setVolume] = useState(1);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [controlsVisible, setControlsVisible] = useState(true);
+    const [hasCaptions, setHasCaptions] = useState(false);
+    const [captionsOn, setCaptionsOn] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return window.localStorage?.getItem('worlds:captionsOn') === '1';
+    });
 
     useEffect(() => {
         const video = videoRef.current;
@@ -251,6 +256,58 @@ function HlsPlayer({ src, seekRequest, mediaRef }) {
         const onFs = () => setIsFullscreen(document.fullscreenElement === wrapperRef.current);
         document.addEventListener('fullscreenchange', onFs);
         return () => document.removeEventListener('fullscreenchange', onFs);
+    }, []);
+
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+        const tracks = video.textTracks;
+        if (!tracks) return;
+        const applyDesiredMode = () => {
+            let found = false;
+            for (let i = 0; i < tracks.length; i++) {
+                const t = tracks[i];
+                if (t.kind === 'subtitles' || t.kind === 'captions') {
+                    found = true;
+                    const desired = captionsOn ? 'showing' : 'disabled';
+                    if (t.mode !== desired) t.mode = desired;
+                }
+            }
+            setHasCaptions(found);
+        };
+        const syncFromTracks = () => {
+            let found = false;
+            let anyShowing = false;
+            for (let i = 0; i < tracks.length; i++) {
+                const t = tracks[i];
+                if (t.kind === 'subtitles' || t.kind === 'captions') {
+                    found = true;
+                    if (t.mode === 'showing') anyShowing = true;
+                }
+            }
+            setHasCaptions(found);
+            setCaptionsOn(anyShowing);
+        };
+        applyDesiredMode();
+        const onAdd = () => applyDesiredMode();
+        const onRemove = () => applyDesiredMode();
+        const onChange = () => syncFromTracks();
+        tracks.addEventListener?.('addtrack', onAdd);
+        tracks.addEventListener?.('removetrack', onRemove);
+        tracks.addEventListener?.('change', onChange);
+        return () => {
+            tracks.removeEventListener?.('addtrack', onAdd);
+            tracks.removeEventListener?.('removetrack', onRemove);
+            tracks.removeEventListener?.('change', onChange);
+        };
+    }, [src, captionsOn]);
+
+    const toggleCaptions = useCallback(() => {
+        setCaptionsOn((on) => {
+            const next = !on;
+            try { window.localStorage?.setItem('worlds:captionsOn', next ? '1' : '0'); } catch {}
+            return next;
+        });
     }, []);
 
     const scheduleHide = useCallback(() => {
@@ -366,6 +423,20 @@ function HlsPlayer({ src, seekRequest, mediaRef }) {
                     </div>
 
                     <div className="flex-1" />
+
+                    {hasCaptions && (
+                        <button
+                            onClick={toggleCaptions}
+                            className="p-1.5 hover:bg-white/10 rounded-md transition-colors flex items-center"
+                            title={captionsOn ? 'Hide captions (c)' : 'Show captions (c)'}
+                        >
+                            <span
+                                className={`text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-sm border transition-colors ${captionsOn ? 'bg-white text-black border-white' : 'text-white border-white/70'}`}
+                            >
+                                CC
+                            </span>
+                        </button>
+                    )}
 
                     <button onClick={toggleFullscreen} className="p-1.5 hover:bg-white/10 rounded-md transition-colors" title={isFullscreen ? 'Exit fullscreen (f)' : 'Fullscreen (f)'}>
                         {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
@@ -1302,6 +1373,31 @@ export default function Worlds() {
             if (key === 'f' || key === 'F') {
                 if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
                 else video.parentElement?.requestFullscreen?.().catch(() => {});
+                e.preventDefault();
+                return;
+            }
+            if (key === 'c' || key === 'C') {
+                const tracks = video.textTracks;
+                let hasCC = false;
+                let anyShowing = false;
+                if (tracks) {
+                    for (let i = 0; i < tracks.length; i++) {
+                        const tr = tracks[i];
+                        if (tr.kind === 'subtitles' || tr.kind === 'captions') {
+                            hasCC = true;
+                            if (tr.mode === 'showing') anyShowing = true;
+                        }
+                    }
+                }
+                if (!hasCC) return;
+                const next = !anyShowing;
+                for (let i = 0; i < tracks.length; i++) {
+                    const tr = tracks[i];
+                    if (tr.kind === 'subtitles' || tr.kind === 'captions') {
+                        tr.mode = next ? 'showing' : 'disabled';
+                    }
+                }
+                try { window.localStorage?.setItem('worlds:captionsOn', next ? '1' : '0'); } catch {}
                 e.preventDefault();
                 return;
             }
