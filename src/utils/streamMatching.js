@@ -23,6 +23,19 @@ export const calculateEventDays = (startDate, endDate) => {
 };
 
 /**
+ * Does this stream have something to play?
+ *
+ * YouTube streams carry a `videoId` parsed out of a pasted URL. Vimeo streams
+ * are pinned by their preset instead and carry a clip id, so a bare `videoId`
+ * check reads them as empty.
+ *
+ * @param {Object} stream - Stream object
+ * @returns {boolean}
+ */
+export const hasStreamVideo = (stream) =>
+    stream?.provider === 'vimeo' ? !!stream.vimeoVideoId : !!stream?.videoId;
+
+/**
  * Determine which day index (0-based) a match occurred on
  * @param {string} matchDate - ISO date string of match start
  * @param {string} eventStartDate - ISO date string of event start
@@ -120,8 +133,17 @@ export const findStreamForMatch = (match, streams, eventStartDate) => {
     const matchTimeMs = new Date(matchStartTime).getTime();
     const matchDivisionId = match.division?.id;
 
+    // Vimeo streams are pinned to a single broadcast day by an admin-supplied
+    // anchor, so — unlike a pasted YouTube URL, which the fallbacks below are
+    // happy to reuse across days — one must never stand in for another day's
+    // match. Doing so would seek hours past the end of the recording. Drop them
+    // before the fallbacks can reach for them.
+    const eligible = streams.filter(stream =>
+        stream.provider !== 'vimeo' || stream.dayIndex === matchDay
+    );
+
     // Filter streams that have valid start times
-    const streamsWithStartTime = streams.filter(stream => stream.streamStartTime);
+    const streamsWithStartTime = eligible.filter(stream => stream.streamStartTime);
 
     if (streamsWithStartTime.length === 0) return null;
 

@@ -88,11 +88,20 @@ export const saveEventToHistory = (event, streams) => {
         eventSeason: event.season,
         eventDivisions: event.divisions,
         streams: streams.map(s => ({
+            id: s.id,
             label: s.label,
             url: s.url,
             videoId: s.videoId,
             dayIndex: s.dayIndex,
-            streamStartTime: s.streamStartTime
+            divisionId: s.divisionId,
+            date: s.date,
+            streamStartTime: s.streamStartTime,
+            // Vimeo streams carry their identity here rather than in a URL, so
+            // omitting these restores an empty stream with no way to play.
+            provider: s.provider,
+            vimeoEventId: s.vimeoEventId,
+            vimeoVideoId: s.vimeoVideoId,
+            anchor: s.anchor
         })),
         lastAccessed: timestamp,
         firstAccessed: existingIndex >= 0 ? history[existingIndex].firstAccessed : timestamp

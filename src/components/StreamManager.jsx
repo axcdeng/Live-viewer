@@ -386,6 +386,33 @@ function StreamManager({
                     }
 
                     return filteredStreams.map((stream) => {
+                        // Vimeo days are pinned by the preset, not pasted as a
+                        // URL, and there is no start time to detect — so there is
+                        // nothing here for the admin-facing URL input to do.
+                        if (stream.provider === 'vimeo') {
+                            return (
+                                <div
+                                    key={stream.id}
+                                    className="flex items-center justify-between gap-3 bg-black/40 border border-gray-800 rounded-lg px-4 py-3"
+                                >
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium text-gray-300">{stream.label}</p>
+                                        <p className="text-xs text-gray-500 mt-0.5">
+                                            Vimeo livestream · synced to this day's first match
+                                        </p>
+                                    </div>
+                                    <a
+                                        href={`https://vimeo.com/event/${stream.vimeoEventId}/video/${stream.vimeoVideoId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs font-bold text-[#4FCEEC] hover:text-white whitespace-nowrap"
+                                    >
+                                        Open on Vimeo
+                                    </a>
+                                </div>
+                            );
+                        }
+
                         const validation = validateStreamDate(stream);
 
                         return (

@@ -24,7 +24,9 @@ import {
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
 import { findWebcastCandidates } from '../services/webcastDetection';
 import { getCachedWebcast, setCachedWebcast, saveEventToHistory } from '../services/eventCache';
-import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutReason, inferMatchDayFromContext } from '../utils/streamMatching';
+import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutReason, inferMatchDayFromContext, hasStreamVideo } from '../utils/streamMatching';
+import { configuredVimeoDays, resolveVimeoStreamStart } from '../services/vimeo';
+import VimeoPlayer from '../components/VimeoPlayer';
 import { parseCalendarDate } from '../utils/dateUtils';
 import { Analytics } from "@vercel/analytics/react";
 
@@ -78,6 +80,47 @@ async function detectOrFallbackStreams(event, divisions) {
     }
 
     return newStreams;
+}
+
+// Build one stream per configured Vimeo broadcast day.
+//
+// Vimeo's live API is paywalled, so there is no stream-start time to look up the
+// way YouTube offers one. Instead each day carries an admin-supplied anchor —
+// a match, and how far into the video it starts — which pins the broadcast to
+// wall-clock time. Once streamStartTime is set, every downstream consumer
+// (findStreamForMatch, jumpToMatch, the seek controls) works unchanged.
+function buildVimeoStreams(preset, divisions, eventStart) {
+    const eventId = preset?.vimeo?.eventId;
+    if (!eventId) return [];
+
+    // Vimeo is single-feed here; there is no per-division broadcast to pick from.
+    const divisionId = divisions?.[0]?.id ?? 1;
+
+    return configuredVimeoDays(preset.vimeo)
+        .map((day) => {
+            const streamStartTime = resolveVimeoStreamStart(day);
+            // A day with no clip or no usable anchor cannot play anything, and
+            // an empty stream would only show up as a dead tab.
+            if (!streamStartTime || !day.videoId) return null;
+
+            const dayIndex = getMatchDayIndex(day.date, eventStart);
+
+            return {
+                id: `stream-vimeo-${day.date}`,
+                provider: 'vimeo',
+                vimeoEventId: String(eventId),
+                vimeoVideoId: String(day.videoId),
+                anchor: day,
+                url: '',
+                videoId: null,
+                streamStartTime,
+                divisionId,
+                dayIndex,
+                label: `Day ${dayIndex + 1} - ${format(parseCalendarDate(day.date), 'MMM d')}`,
+                date: parseCalendarDate(day.date).toISOString(),
+            };
+        })
+        .filter(Boolean);
 }
 
 function Viewer() {
@@ -504,7 +547,7 @@ function Viewer() {
     // Webcast Detection Effect
     useEffect(() => {
         const detect = async () => {
-            if (!event || streams.some(s => s.videoId) || noWebcastsFound || showStreamSuccess) return;
+            if (!event || streams.some(hasStreamVideo) || noWebcastsFound || showStreamSuccess) return;
 
             // Prevent running if we just ran it (rudimentary check, or rely on state)
             // Actually, just check if we have candidates or if we've already marked as not found
@@ -608,11 +651,11 @@ function Viewer() {
     // Auto-switch active stream if current is empty and others have content
     useEffect(() => {
         const activeStream = getActiveStream();
-        const hasVideo = activeStream?.videoId;
+        const hasVideo = hasStreamVideo(activeStream);
 
         if (!hasVideo) {
             // Find first stream with a video
-            const firstWithVideo = streams.find(s => s.videoId);
+            const firstWithVideo = streams.find(hasStreamVideo);
             if (firstWithVideo) {
                 setActiveStreamId(firstWithVideo.id);
             }
@@ -818,13 +861,10 @@ function Viewer() {
                 const fullEvent = await getEventBySku(reconstructedEvent.sku);
                 reconstructedEvent = fullEvent;
                 // Update history with full details
-                saveEventToHistory(fullEvent, historyEntry.streams.map(s => ({
-                    label: s.label,
-                    url: s.url,
-                    videoId: s.videoId,
-                    dayIndex: s.dayIndex,
-                    streamStartTime: s.streamStartTime
-                })));
+                // Pass the entries through whole — saveEventToHistory picks the
+                // fields it persists, and narrowing them here silently dropped
+                // the Vimeo ones.
+                saveEventToHistory(fullEvent, historyEntry.streams);
             } catch (err) {
                 console.error('Failed to fetch full event details:', err);
             }
@@ -843,7 +883,14 @@ function Viewer() {
                 divisionId: s.divisionId || 1, // Fallback for legacy
                 dayIndex: s.dayIndex,
                 label: s.label,
-                date: s.date
+                date: s.date,
+                // Vimeo streams are identified by these rather than by a URL.
+                ...(s.provider === 'vimeo' && {
+                    provider: 'vimeo',
+                    vimeoEventId: s.vimeoEventId,
+                    vimeoVideoId: s.vimeoVideoId,
+                    anchor: s.anchor
+                })
             }));
 
             setStreams(restoredStreams);
@@ -947,8 +994,16 @@ function Viewer() {
 
             let newStreams = [];
 
+            // Vimeo presets bypass stream detection entirely: the clip and the
+            // per-day sync anchor are both pinned in the preset, and there is no
+            // stream-start lookup to attempt (Vimeo's live API is a paid tier).
+            const vimeoStreams = buildVimeoStreams(preset, divisions, foundEvent.start);
+            if (vimeoStreams.length) {
+                newStreams = vimeoStreams;
+            }
+
             // Auto-detect streams or auto-generate defaults if no preset streams
-            if (!preset.streams || Object.keys(preset.streams).length === 0) {
+            if (newStreams.length === 0 && (!preset.streams || Object.keys(preset.streams).length === 0)) {
                 newStreams = await detectOrFallbackStreams(foundEvent, divisions);
             }
 
@@ -1062,7 +1117,7 @@ function Viewer() {
 
             if (newStreams.length > 0) {
                 // If we have preset streams, find the first one that has a videoId
-                const firstWithVideo = newStreams.find(s => s.videoId);
+                const firstWithVideo = newStreams.find(hasStreamVideo);
                 setActiveStreamId(firstWithVideo ? firstWithVideo.id : newStreams[0].id);
             }
 
@@ -1233,6 +1288,30 @@ function Viewer() {
         ));
         setSyncMode(false);
     };
+
+    // Re-derive each Vimeo day's stream start from the live match list once one
+    // is available. The anchor match's start time is copied into the preset when
+    // the admin saves it, and RobotEvents sometimes revises a `started`
+    // afterwards — which would otherwise shift every seek on that day by the
+    // same amount, in a way nothing on screen would explain.
+    useEffect(() => {
+        const pool = allMatches.length ? allMatches : matches;
+        if (!pool.length) return;
+
+        setStreams(prev => {
+            let changed = false;
+            const next = prev.map(stream => {
+                if (stream.provider !== 'vimeo' || !stream.anchor) return stream;
+                const refreshed = resolveVimeoStreamStart(stream.anchor, pool);
+                if (refreshed === null || refreshed === stream.streamStartTime) return stream;
+                changed = true;
+                return { ...stream, streamStartTime: refreshed };
+            });
+            // Returning the same array when nothing moved keeps this from
+            // re-triggering itself through the streams-dependent effects.
+            return changed ? next : prev;
+        });
+    }, [allMatches, matches]);
 
     const jumpToMatch = async (match) => {
         // Find the appropriate stream for this match
@@ -1446,7 +1525,16 @@ function Viewer() {
                                             style={{ display: stream.id === activeStreamId ? 'block' : 'none' }}
                                             className="w-full h-full"
                                         >
-                                            {stream.videoId ? (
+                                            {stream.provider === 'vimeo' ? (
+                                                <VimeoPlayer
+                                                    eventId={stream.vimeoEventId}
+                                                    videoId={stream.vimeoVideoId}
+                                                    onReady={(player) => {
+                                                        setPlayers(prev => ({ ...prev, [stream.id]: player }));
+                                                    }}
+                                                    onError={setError}
+                                                />
+                                            ) : stream.videoId ? (
                                                 <YouTube
                                                     videoId={stream.videoId}
                                                     opts={{
@@ -1487,13 +1575,13 @@ function Viewer() {
 
                                 {/* Stream Switcher Overlay */}
                                 {streams.length > 1 && (
-                                    <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${getActiveStream()?.videoId ? 'opacity-0 group-hover:opacity-100' : ''}`}>
+                                    <div className={`absolute inset-0 pointer-events-none transition-opacity duration-300 ${hasStreamVideo(getActiveStream()) ? 'opacity-0 group-hover:opacity-100' : ''}`}>
 
                                         {/* Division Switcher (Top Left) */}
                                         {multiDivisionMode && event?.divisions?.length > 1 && (
                                             <div className="absolute top-4 left-4 flex gap-1.5 pointer-events-auto">
                                                 {event.divisions.map((div) => {
-                                                    const hasAnyVideo = streams.some(s => s.divisionId === div.id && s.videoId);
+                                                    const hasAnyVideo = streams.some(s => s.divisionId === div.id && hasStreamVideo(s));
                                                     return (
                                                         <button
                                                             key={div.id}
@@ -1521,8 +1609,8 @@ function Viewer() {
                                         {/* Day Switcher (Top Right) */}
                                         <div className="absolute top-4 right-4 flex gap-2 pointer-events-auto">
                                             {(multiDivisionMode
-                                                ? streams.filter(s => s.divisionId === activeDivisionId && s.videoId)
-                                                : streams.filter(s => s.divisionId === (event?.divisions?.[0]?.id || 1) && s.videoId)
+                                                ? streams.filter(s => s.divisionId === activeDivisionId && hasStreamVideo(s))
+                                                : streams.filter(s => s.divisionId === (event?.divisions?.[0]?.id || 1) && hasStreamVideo(s))
                                             ).map((stream) => (
                                                 <button
                                                     key={stream.id}
@@ -1580,7 +1668,7 @@ function Viewer() {
                                             canControl={!!players[activeStreamId]}
                                         />
                                     )}
-                                    {noWebcastsFound && !isDetecting && !showStreamSuccess && !streams.some(s => s.videoId) && (
+                                    {noWebcastsFound && !isDetecting && !showStreamSuccess && !streams.some(hasStreamVideo) && (
                                         <p className="text-yellow-500 text-xs text-center sm:text-left mt-2 animate-fade-in">
                                             No webcasts found automatically. Please paste the URL manually. <br className="sm:hidden" />
                                             Check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.

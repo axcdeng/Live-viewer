@@ -80,8 +80,15 @@ export default async function handler(req, res) {
 
         const streamStartTimes = await fetchStreamStartTimes([...neededVideoIds], ytApiKey);
 
+        // 4b. Vimeo presets carry their own per-day anchors instead of a stream
+        // start time we can look up (see resolveVimeoDays).
+        const vimeoDays = resolveVimeoDays(preset, allMatches);
+
         // 5. Build result — one entry per match
         const results = allMatches.map(match => {
+            const vimeoEntry = vimeoTimestampFor(match, preset, vimeoDays, offset);
+            if (vimeoEntry) return vimeoEntry;
+
             const matchStartMs = match.started ? new Date(match.started).getTime() : null;
             const divisionId = String(match.division?.id || 1);
             const dayIndex = matchStartMs !== null
@@ -115,6 +122,86 @@ export default async function handler(req, res) {
         console.error('[match-timestamp]', error);
         return res.status(500).json({ error: 'Internal server error', message: error.message });
     }
+}
+
+// ---------------------------------------------------------------------------
+// Vimeo
+//
+// Vimeo's live API is a paid tier, so unlike YouTube there is no way to ask when
+// a broadcast started. Instead the admin supplies one anchor per day — a match,
+// and how far into the video that match begins — and everything else follows,
+// because the recording runs in real time:
+//
+//   streamStart      = anchorMatchStart − anchorSeconds
+//   seek(anyMatch)   = anchorSeconds + (thatMatchStart − anchorMatchStart)
+//
+// Days are keyed by the venue's own calendar date. RobotEvents timestamps carry
+// the venue's UTC offset, so slicing the date off the string is exact — parsing
+// into a Date would re-anchor to the server's timezone and roll late-evening
+// matches into the next day.
+// ---------------------------------------------------------------------------
+
+const localDate = (isoString) => (isoString ? String(isoString).slice(0, 10) : null);
+const matchTime = (match) => match?.started || match?.scheduled || null;
+
+// date → { videoId, streamStartMs }, for the days that are actually armed.
+function resolveVimeoDays(preset, allMatches) {
+    const days = preset?.vimeo?.days;
+    if (!Array.isArray(days)) return null;
+
+    const resolved = new Map();
+
+    for (const day of days) {
+        if (!day?.date || day.anchorSeconds === null || day.anchorSeconds === undefined) continue;
+        if (!day.videoId) continue; // armed but no clip yet — nothing to play
+
+        // Prefer the anchor match's live start time over the copy saved with the
+        // day, so a RobotEvents revision cannot drag every seek off by the same
+        // amount relative to the other matches.
+        const live = allMatches.find(m => m.id === day.anchorMatchId);
+        const anchorStartedAt = matchTime(live) || day.anchorStartedAt;
+        if (!anchorStartedAt) continue;
+
+        const anchorMs = new Date(anchorStartedAt).getTime();
+        if (Number.isNaN(anchorMs)) continue;
+
+        resolved.set(day.date, {
+            videoId: String(day.videoId),
+            streamStartMs: anchorMs - Number(day.anchorSeconds) * 1000,
+        });
+    }
+
+    return resolved.size ? resolved : null;
+}
+
+function vimeoTimestampFor(match, preset, vimeoDays, offset) {
+    if (!vimeoDays) return null;
+
+    // Only matches that actually ran, matching the YouTube path above — a
+    // scheduled-but-unplayed match would otherwise come back with a non-null
+    // timestamp and light up a play button for footage that does not exist.
+    if (!match?.started) return null;
+
+    const startedAt = matchTime(match);
+    const day = vimeoDays.get(localDate(startedAt));
+    if (!day) return null;
+
+    const seekSeconds = Math.floor((new Date(startedAt).getTime() - day.streamStartMs) / 1000) + offset;
+    // A match before the anchor by more than the anchor's own offset would seek
+    // behind the start of the recording.
+    if (!Number.isFinite(seekSeconds) || seekSeconds < 0) return null;
+
+    const eventId = String(preset.vimeo.eventId);
+
+    return {
+        id: match.id,
+        name: match.name,
+        divisionId: match.division?.id ?? 1,
+        timestamp: seekSeconds,
+        livestreamLink: `https://vimeo.com/event/${eventId}/video/${day.videoId}`,
+        videoId: null,
+        vimeo: { eventId, videoId: day.videoId },
+    };
 }
 
 function getVideoId(preset, divisionId, dayIndex) {

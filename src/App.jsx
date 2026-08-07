@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Viewer from './pages/Viewer';
 import Admin from './pages/Admin';
+import MoaVimeo from './pages/MoaVimeo';
 import Worlds from './pages/Worlds';
 import RouteResolver from './pages/RouteResolver';
 
@@ -14,6 +15,11 @@ function App() {
 
                 {/* Admin Interface */}
                 <Route path="/admin" element={<Admin />} />
+
+                {/* One-off: Vimeo match sync for the Mall of America Signature.
+                    Sits above the short-link catch-all, which would otherwise
+                    swallow /admin/*. */}
+                <Route path="/admin/moa-vimeo" element={<MoaVimeo />} />
 
                 {/* Worlds Championship Page */}
                 <Route path="/worlds" element={<Worlds />} />

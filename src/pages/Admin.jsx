@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList, RefreshCw, Layout, AlertCircle, Globe } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList, RefreshCw, Layout, AlertCircle, Globe, Video } from 'lucide-react';
 import { getEventBySku } from '../services/robotevents';
 import { calculateEventDays } from '../utils/streamMatching';
 import { extractVideoId } from '../services/youtube';
@@ -302,7 +303,11 @@ function Admin() {
         let updatedRoutes;
         if (editingIndex !== null) {
             updatedRoutes = [...routes];
-            updatedRoutes[editingIndex] = routeData;
+            // Merge rather than replace: this form only knows about label/path/
+            // sku/streams/divisionNames, and a wholesale swap silently deleted
+            // anything else a route carries — the MOA event's `vimeo` block, for
+            // one, which would take the feature down mid-event with no error.
+            updatedRoutes[editingIndex] = { ...routes[editingIndex], ...routeData };
         } else {
             updatedRoutes = [...routes, routeData];
         }
@@ -556,12 +561,20 @@ This was requested via Admin > Header Management > "Show to all users" for versi
                     </div>
                     <h1 className="text-2xl font-bold text-white">Route Manager</h1>
                 </div>
-                <button
-                    onClick={handleLogout}
-                    className="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2"
-                >
-                    <X className="w-4 h-4" /> Logout
-                </button>
+                <div className="flex items-center gap-5">
+                    <Link
+                        to="/admin/moa-vimeo"
+                        className="text-sm font-semibold text-[#4FCEEC] hover:text-white transition-colors flex items-center gap-2"
+                    >
+                        <Video className="w-4 h-4" /> MOA 26 Vimeo
+                    </Link>
+                    <button
+                        onClick={handleLogout}
+                        className="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2"
+                    >
+                        <X className="w-4 h-4" /> Logout
+                    </button>
+                </div>
             </header>
 
             <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
