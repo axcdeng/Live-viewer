@@ -67,12 +67,12 @@ const offsetMinutes = (isoString) => {
 // Guessing is worse than admitting ignorance here: a missing offset used to be
 // parsed as if it were one, silently shifting the displayed time by hours.
 const venueTime = (isoString) => {
-    if (!isoString) return '—';
+    if (!isoString) return '?';
     const parsed = new Date(isoString);
-    if (Number.isNaN(parsed.getTime())) return '—';
+    if (Number.isNaN(parsed.getTime())) return '?';
 
     const offset = offsetMinutes(isoString);
-    if (offset === null) return String(isoString).slice(11, 16) || '—';
+    if (offset === null) return String(isoString).slice(11, 16) || '?';
 
     const shifted = new Date(parsed.getTime() + offset * 60 * 1000);
     return shifted.toLocaleTimeString('en-US', {
@@ -224,7 +224,7 @@ function MoaVimeo() {
         // stream, which is exactly the number we store.
         const seconds = Math.max(0, Math.floor(player.getCurrentTime()));
         if (!seconds) {
-            setError('The player is at 0:00 — scrub to the match start first.');
+            setError('The player is at 0:00. Scrub to the match start first.');
             return;
         }
 
@@ -303,7 +303,7 @@ function MoaVimeo() {
             if (!res.ok) throw new Error((await res.text()) || res.statusText);
 
             setRoutes(list);
-            setNotice(index >= 0 ? 'Saved.' : 'Saved — created the MOA preset.');
+            setNotice(index >= 0 ? 'Saved.' : 'Saved, and created the MOA preset.');
             setTimeout(() => setNotice(''), 4000);
         } catch (err) {
             setError('Could not save: ' + (err.message || 'unknown error'));
@@ -343,7 +343,7 @@ function MoaVimeo() {
                     </div>
                     <div>
                         <h1 className="text-2xl font-bold">MOA 26 Vimeo</h1>
-                        <p className="text-xs text-gray-500">Mall of America Signature — Vimeo match sync</p>
+                        <p className="text-xs text-gray-500">Mall of America Signature · Vimeo match sync</p>
                     </div>
                 </div>
                 <Link to="/admin" className="text-sm text-gray-400 hover:text-white flex items-center gap-2">
@@ -356,12 +356,12 @@ function MoaVimeo() {
                     <p className="text-gray-300 leading-relaxed">
                         Vimeo won't tell us when a broadcast started without the paid API, so each day needs one
                         anchor: <strong className="text-white">how far into the video the day's first match begins</strong>.
-                        Every other match that day is derived from it. Filling in one day is enough — the other stays
+                        Every other match that day is derived from it. Filling in one day is enough; the other stays
                         dormant until you get to it.
                     </p>
                     <p className="text-gray-500 leading-relaxed mt-3 text-xs">
                         <strong className="text-yellow-400">Jumping does not work while a broadcast is live.</strong>{' '}
-                        Vimeo reports a duration of zero for a running event and refuses every seek against it — not
+                        Vimeo reports a duration of zero for a running event and refuses every seek against it, not
                         just old ones. Match jumps start working for a day once its session ends and Vimeo posts the
                         replay. You can fill this in at any point; it simply won't do anything until then, and viewers
                         are told where the match is so they can scrub there by hand in the meantime.
@@ -509,7 +509,7 @@ function MoaVimeo() {
                                         {!dayMatches.length && <option value="">No matches yet</option>}
                                         {dayMatches.map((m) => (
                                             <option key={m.id} value={m.id}>
-                                                {m.name} — {venueTime(matchTime(m))}
+                                                {m.name} · {venueTime(matchTime(m))}
                                             </option>
                                         ))}
                                     </select>
@@ -581,7 +581,7 @@ function MoaVimeo() {
                                         </button>
                                         <p className="text-[11px] text-gray-500">
                                             Scrub to the moment {anchorMatch?.name ?? "the day's first match"} starts, then
-                                            click. Ignore the negative time Vimeo shows — that counts backwards from live.
+                                            click. Ignore the negative time Vimeo shows; it counts backwards from live.
                                         </p>
                                     </div>
                                 </div>
@@ -607,7 +607,7 @@ function MoaVimeo() {
                                         {anchorMatch && !anchorMatch.started && (
                                             <p className="text-yellow-400">
                                                 {anchorMatch.name} hasn't reported a real start time yet, so this is anchored
-                                                to its <em>scheduled</em> time. Schedules drift — re-save once it has actually run.
+                                                to its <em>scheduled</em> time. Schedules drift, so re-save once it has actually run.
                                             </p>
                                         )}
                                     </>
@@ -626,7 +626,7 @@ function MoaVimeo() {
                 <div className="flex items-center justify-between gap-4 pb-12">
                     <p className="text-xs text-gray-500">
                         {ready === 0 && 'Nothing configured yet.'}
-                        {ready === 1 && '1 of 2 days armed — that day will work on its own.'}
+                        {ready === 1 && '1 of 2 days armed; that day will work on its own.'}
                         {ready === 2 && 'Both days armed.'}
                     </p>
                     <button

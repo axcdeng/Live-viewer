@@ -14,10 +14,27 @@ import { formatTimestamp, loadVimeoSdk, vimeoEmbedUrl } from '../services/vimeo'
  * getCurrentTime() is called synchronously, so the current time is mirrored into
  * a ref off the player's own timeupdate/seeked events.
  */
+
+// Where a position sits relative to the live edge, phrased the way Vimeo's own
+// scrubber shows it ("-1:59:50"). During a live broadcast that readout is all a
+// viewer can see, so an offset from the broadcast start would be meaningless.
+const behindLiveOf = (liveEdge, target) => {
+    if (!liveEdge) return null;
+    const liveNow = liveEdge.seconds + (Date.now() - liveEdge.at) / 1000;
+    const behind = liveNow - target;
+    return behind > 0 ? behind : null;
+};
+
 function VimeoPlayer({ eventId, videoId, onReady, onError }) {
     const iframeRef = useRef(null);
     const currentTimeRef = useRef(0);
+    const liveEdgeRef = useRef(null);
     const [failed, setFailed] = useState(null);
+
+    const behindLiveLabel = (target) => {
+        const behind = behindLiveOf(liveEdgeRef.current, target);
+        return behind === null ? `${formatTimestamp(target)} from the start` : `-${formatTimestamp(behind)}`;
+    };
 
     const src = vimeoEmbedUrl(eventId, videoId);
 
@@ -31,8 +48,16 @@ function VimeoPlayer({ eventId, videoId, onReady, onError }) {
 
         // Declared out here so the cleanup below can unsubscribe the exact same
         // reference it subscribed.
+        //
+        // The first tick lands at the live edge (the embed autoplays there), so
+        // pairing it with a wall clock lets us keep projecting where the live
+        // edge is even after someone scrubs away from it.
         const track = (data) => {
-            if (typeof data?.seconds === 'number') currentTimeRef.current = data.seconds;
+            if (typeof data?.seconds !== 'number') return;
+            currentTimeRef.current = data.seconds;
+            if (liveEdgeRef.current === null) {
+                liveEdgeRef.current = { seconds: data.seconds, at: Date.now() };
+            }
         };
 
         loadVimeoSdk()
@@ -82,12 +107,14 @@ function VimeoPlayer({ eventId, videoId, onReady, onError }) {
                                     // not even a few seconds back. It starts working
                                     // once the session ends and the replay publishes.
                                     //
-                                    // Naming the timestamp turns a dead end into
-                                    // something the viewer can act on: Vimeo's own
-                                    // scrubber still works by hand.
+                                    // Vimeo's scrubber counts backwards from the
+                                    // live edge, and that is the only readout the
+                                    // viewer can see, so quote the position in the
+                                    // same terms rather than as an offset from the
+                                    // broadcast start.
                                     const message =
                                         error?.name === 'RangeError'
-                                            ? `This match is at ${formatTimestamp(target)} in the stream. Vimeo blocks jumping while a broadcast is live — scrub there manually, or come back once the session ends and the replay is posted.`
+                                            ? `Vimeo blocks jumping while a broadcast is live. Drag the scrubber back to about ${behindLiveLabel(target)}, which is where this match is right now. Vimeo counts backwards from live, so that number keeps sliding as the stream runs. Jumping works normally once the session ends and the replay is posted.`
                                             : 'Could not seek this Vimeo stream.';
                                     onError?.(message);
                                 });
