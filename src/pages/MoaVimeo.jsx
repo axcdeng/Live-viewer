@@ -4,6 +4,7 @@ import {
     AlertCircle, ArrowLeft, CheckCircle2, ExternalLink, Loader, Lock, RefreshCw, Save, Tv, Video,
 } from 'lucide-react';
 import { getEventBySku, getMatchesForEvent } from '../services/robotevents';
+import VimeoPlayer from '../components/VimeoPlayer';
 import {
     eventLocalDate, fetchCurrentVimeoClip, formatTimestamp, matchTime,
     parseTimestamp, resolveVimeoStreamStart, vimeoWatchUrl,
@@ -100,6 +101,13 @@ function MoaVimeo() {
     // Timestamp inputs are kept as raw text so a half-typed "1:2" does not get
     // normalised out from under the cursor.
     const [timestampText, setTimestampText] = useState(() => Object.fromEntries(MOA.days.map((d) => [d, ''])));
+
+    // Which day's scrub-along player is open, plus the player shims keyed by date.
+    // Vimeo's live scrubber reads as a negative offset from the live edge, which
+    // is not what we store — so rather than make anyone convert, read the
+    // position straight out of the player.
+    const [scrubDay, setScrubDay] = useState(null);
+    const scrubPlayers = useRef({});
 
     const [currentClip, setCurrentClip] = useState(null);
     const [detecting, setDetecting] = useState(false);
@@ -204,6 +212,35 @@ function MoaVimeo() {
         }
         return grouped;
     }, [matches]);
+
+    const captureFromPlayer = (date) => {
+        const player = scrubPlayers.current[date];
+        if (!player) {
+            setError('The player is still loading.');
+            return;
+        }
+
+        // getCurrentTime() is measured from the broadcast start even on a live
+        // stream, which is exactly the number we store.
+        const seconds = Math.max(0, Math.floor(player.getCurrentTime()));
+        if (!seconds) {
+            setError('The player is at 0:00 — scrub to the match start first.');
+            return;
+        }
+
+        setError('');
+        setTimestampText((prev) => ({ ...prev, [date]: formatTimestamp(seconds) }));
+
+        const dayMatches = matchesByDate[date] ?? [];
+        const day = days.find((d) => d.date === date);
+        const anchor = dayMatches.find((m) => m.id === day?.anchorMatchId) ?? dayMatches[0] ?? null;
+        updateDay(date, {
+            anchorSeconds: seconds,
+            anchorMatchId: day?.anchorMatchId ?? anchor?.id ?? null,
+            anchorMatchName: day?.anchorMatchName ?? anchor?.name ?? null,
+            anchorStartedAt: day?.anchorStartedAt ?? matchTime(anchor) ?? null,
+        });
+    };
 
     // --- Save ---------------------------------------------------------------
     const handleSave = async () => {
@@ -506,10 +543,49 @@ function MoaVimeo() {
                                             ? <span className="text-yellow-400">Use H:MM:SS (or MM:SS).</span>
                                             : day.anchorSeconds !== null
                                                 ? `${day.anchorSeconds.toLocaleString()} seconds in`
-                                                : 'Scrub to the match start on Vimeo and copy the time.'}
+                                                : 'Measured from the start of the broadcast.'}
                                     </p>
+                                    {day.videoId && (
+                                        <button
+                                            onClick={() => setScrubDay(scrubDay === day.date ? null : day.date)}
+                                            className="mt-2 text-[11px] font-bold text-[#4FCEEC] hover:text-white transition-colors"
+                                        >
+                                            {scrubDay === day.date ? 'Hide player' : 'Find it in the player →'}
+                                        </button>
+                                    )}
                                 </div>
                             </div>
+
+                            {/* Scrub-along player.
+                                Vimeo's own scrubber reads as a negative offset from the
+                                live edge ("-1:59:50"), which is neither what we store nor
+                                stable — the live edge keeps moving. getCurrentTime() is
+                                measured from the broadcast start even mid-stream, so let
+                                the player answer instead of asking anyone to convert. */}
+                            {scrubDay === day.date && day.videoId && (
+                                <div className="space-y-3">
+                                    <div className="aspect-video w-full bg-black rounded-lg overflow-hidden border border-gray-800">
+                                        <VimeoPlayer
+                                            eventId={MOA.vimeoEventId}
+                                            videoId={day.videoId}
+                                            onReady={(player) => { scrubPlayers.current[day.date] = player; }}
+                                            onError={() => {}}
+                                        />
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <button
+                                            onClick={() => captureFromPlayer(day.date)}
+                                            className="px-4 py-2 bg-[#4FCEEC] hover:bg-[#3db8d6] text-black text-xs font-bold rounded-lg transition-colors"
+                                        >
+                                            Use this position
+                                        </button>
+                                        <p className="text-[11px] text-gray-500">
+                                            Scrub to the moment {anchorMatch?.name ?? "the day's first match"} starts, then
+                                            click. Ignore the negative time Vimeo shows — that counts backwards from live.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Readback — the sanity check that the anchor is sane */}
                             <div className="bg-black/50 border border-gray-800 rounded-lg px-4 py-3 text-xs space-y-1.5">
