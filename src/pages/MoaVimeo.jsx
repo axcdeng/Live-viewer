@@ -323,9 +323,11 @@ function MoaVimeo() {
                         dormant until you get to it.
                     </p>
                     <p className="text-gray-500 leading-relaxed mt-3 text-xs">
-                        While a broadcast is still live, Vimeo only allows seeking inside its DVR window, so jumps to
-                        earlier matches may be refused until that day's session ends and the replay is published.
-                        Everything gets more reliable, not less, as the day goes on.
+                        <strong className="text-yellow-400">Jumping does not work while a broadcast is live.</strong>{' '}
+                        Vimeo reports a duration of zero for a running event and refuses every seek against it — not
+                        just old ones. Match jumps start working for a day once its session ends and Vimeo posts the
+                        replay. You can fill this in at any point; it simply won't do anything until then, and viewers
+                        are told where the match is so they can scrub there by hand in the meantime.
                     </p>
                 </section>
 

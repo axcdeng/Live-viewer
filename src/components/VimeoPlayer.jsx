@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { loadVimeoSdk, vimeoEmbedUrl } from '../services/vimeo';
+import { formatTimestamp, loadVimeoSdk, vimeoEmbedUrl } from '../services/vimeo';
 
 /**
  * A Vimeo event embed dressed up as a YouTube player.
@@ -76,12 +76,18 @@ function VimeoPlayer({ eventId, videoId, onReady, onError }) {
                             player.setCurrentTime(target)
                                 .then(() => { currentTimeRef.current = target; })
                                 .catch((error) => {
-                                    // RangeError means the target is outside what
-                                    // the player will accept — before the start of
-                                    // a live stream's DVR window, or past the end.
+                                    // Vimeo reports duration 0 for a live event and
+                                    // validates every seek against it, so while a
+                                    // broadcast is running *nothing* is seekable —
+                                    // not even a few seconds back. It starts working
+                                    // once the session ends and the replay publishes.
+                                    //
+                                    // Naming the timestamp turns a dead end into
+                                    // something the viewer can act on: Vimeo's own
+                                    // scrubber still works by hand.
                                     const message =
                                         error?.name === 'RangeError'
-                                            ? 'That moment is outside the part of this stream Vimeo will let you seek to. If the broadcast is still live, the archive will cover it once the session ends.'
+                                            ? `This match is at ${formatTimestamp(target)} in the stream. Vimeo blocks jumping while a broadcast is live — scrub there manually, or come back once the session ends and the replay is posted.`
                                             : 'Could not seek this Vimeo stream.';
                                     onError?.(message);
                                 });
