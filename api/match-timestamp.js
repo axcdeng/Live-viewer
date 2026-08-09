@@ -83,6 +83,12 @@ export default async function handler(req, res) {
         // 4b. Vimeo presets carry their own per-day anchors instead of a stream
         // start time we can look up (see resolveVimeoDays).
         const vimeoDays = resolveVimeoDays(preset, allMatches);
+        // Presets saved before hashes were stored carry a clip id but no hash,
+        // and without one the player can only fall back to the event embed —
+        // which serves whichever clip is featured now, i.e. the wrong day. Fill
+        // the gap here so an old preset heals itself rather than silently
+        // playing the wrong recording.
+        await backfillVimeoHashes(vimeoDays);
 
         // 5. Build result — one entry per match
         const results = allMatches.map(match => {
@@ -141,6 +147,8 @@ export default async function handler(req, res) {
 // matches into the next day.
 // ---------------------------------------------------------------------------
 
+const VIMEO_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+
 const localDate = (isoString) => (isoString ? String(isoString).slice(0, 10) : null);
 const matchTime = (match) => match?.started || match?.scheduled || null;
 
@@ -167,11 +175,38 @@ function resolveVimeoDays(preset, allMatches) {
 
         resolved.set(day.date, {
             videoId: String(day.videoId),
+            // Only a hashed player URL pins a specific clip; without it the
+            // player falls back to the event embed, which serves whichever clip
+            // is featured right now.
+            hash: day.hash ? String(day.hash) : null,
             streamStartMs: anchorMs - Number(day.anchorSeconds) * 1000,
         });
     }
 
     return resolved.size ? resolved : null;
+}
+
+// Best-effort: a lookup failure just leaves the day hashless, which is no worse
+// than before. Runs at most once per configured day and only when needed.
+async function backfillVimeoHashes(vimeoDays) {
+    if (!vimeoDays) return;
+    const missing = [...vimeoDays.values()].filter((day) => !day.hash);
+    if (!missing.length) return;
+
+    await Promise.all(missing.map(async (day) => {
+        try {
+            const res = await fetch(`https://vimeo.com/${day.videoId}`, {
+                headers: { 'User-Agent': VIMEO_UA, Accept: 'text/html' },
+            });
+            if (!res.ok) return;
+            // Anchored to this clip: the page also lists related clips' player
+            // URLs, and taking one of those would pin the wrong recording.
+            const anchored = new RegExp(`/video/${day.videoId}\\?h=([a-z0-9]+)`, 'i');
+            day.hash = (await res.text()).match(anchored)?.[1] ?? null;
+        } catch {
+            // leave it null
+        }
+    }));
 }
 
 function vimeoTimestampFor(match, preset, vimeoDays, offset) {
@@ -200,7 +235,7 @@ function vimeoTimestampFor(match, preset, vimeoDays, offset) {
         timestamp: seekSeconds,
         livestreamLink: `https://vimeo.com/event/${eventId}/video/${day.videoId}`,
         videoId: null,
-        vimeo: { eventId, videoId: day.videoId },
+        vimeo: { eventId, videoId: day.videoId, hash: day.hash },
     };
 }
 

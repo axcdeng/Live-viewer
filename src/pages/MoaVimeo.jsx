@@ -6,7 +6,7 @@ import {
 import { getEventBySku, getMatchesForEvent } from '../services/robotevents';
 import VimeoPlayer from '../components/VimeoPlayer';
 import {
-    eventLocalDate, fetchCurrentVimeoClip, formatTimestamp, matchTime,
+    eventLocalDate, fetchCurrentVimeoClip, fetchVimeoClipHash, formatTimestamp, matchTime,
     parseTimestamp, resolveVimeoStreamStart, vimeoWatchUrl,
 } from '../services/vimeo';
 
@@ -40,6 +40,10 @@ const MOA = {
 const emptyDay = (date) => ({
     date,
     videoId: null,
+    // The clip's embed hash. Without it the player can only fall back to the
+    // event embed, which always serves whichever clip is featured right now, so
+    // a past day would silently play the wrong recording.
+    hash: null,
     anchorMatchId: null,
     anchorMatchName: null,
     anchorStartedAt: null,
@@ -109,6 +113,11 @@ function MoaVimeo() {
     const [scrubDay, setScrubDay] = useState(null);
     const scrubPlayers = useRef({});
 
+    // Why a hash lookup failed, per day. Vimeo can answer a scrape with a bot
+    // wall, and without this the admin would stare at "looking up…" forever with
+    // no way to intervene.
+    const [hashError, setHashError] = useState({});
+
     const [currentClip, setCurrentClip] = useState(null);
     const [detecting, setDetecting] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -176,7 +185,9 @@ function MoaVimeo() {
             // broadcast is enough — no separate step to remember.
             if (assignTo && clip?.videoId) {
                 setDays((prev) => prev.map((day) =>
-                    day.date === assignTo && !day.videoId ? { ...day, videoId: clip.videoId } : day));
+                    day.date === assignTo && !day.videoId
+                        ? { ...day, videoId: clip.videoId, hash: clip.hash ?? null }
+                        : day));
             }
             return clip;
         } catch (err) {
@@ -198,6 +209,26 @@ function MoaVimeo() {
         autoDetected.current = true;
         detect({ assignTo: today });
     }, [authed, loading, today, detect]);
+
+    // Backfill the embed hash for any day that has a clip id but no hash, which
+    // covers days saved before hashes were stored and ids typed in by hand.
+    useEffect(() => {
+        let cancelled = false;
+        for (const day of days) {
+            if (!day.videoId || day.hash) continue;
+            fetchVimeoClipHash(day.videoId)
+                .then((hash) => {
+                    if (cancelled) return;
+                    if (hash) updateDay(day.date, { hash });
+                    else setHashError((prev) => ({ ...prev, [day.date]: 'no hash found' }));
+                })
+                .catch((err) => {
+                    if (!cancelled) setHashError((prev) => ({ ...prev, [day.date]: err.message || 'lookup failed' }));
+                });
+        }
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [days.map((d) => `${d.date}:${d.videoId}:${d.hash}`).join('|')]);
 
     // --- Derived ------------------------------------------------------------
     const matchesByDate = useMemo(() => {
@@ -455,7 +486,13 @@ function MoaVimeo() {
                                     <input
                                         type="text"
                                         value={day.videoId ?? ''}
-                                        onChange={(e) => updateDay(day.date, { videoId: e.target.value.trim() || null })}
+                                        onChange={(e) => updateDay(day.date, {
+                                            videoId: e.target.value.trim() || null,
+                                            // The hash belongs to the old clip; keeping it would
+                                            // build a player URL Vimeo rejects, with nothing on
+                                            // screen to say why.
+                                            hash: null,
+                                        })}
                                         placeholder="auto-filled while this day is streaming"
                                         className="w-full bg-black border border-gray-700 rounded-lg px-4 py-2.5 text-white font-mono text-sm focus:border-[#4FCEEC] focus:outline-none"
                                     />
@@ -464,7 +501,15 @@ function MoaVimeo() {
                                     <button
                                         onClick={async () => {
                                             const clip = await detect();
-                                            if (clip?.videoId) updateDay(day.date, { videoId: clip.videoId });
+                                            if (clip?.videoId) {
+                                                updateDay(day.date, {
+                                                    videoId: clip.videoId,
+                                                    // Keep the known-good hash if this lookup came
+                                                    // back without one, rather than demoting the
+                                                    // day to the unpinned event embed.
+                                                    hash: clip.hash ?? (clip.videoId === day.videoId ? day.hash : null),
+                                                });
+                                            }
                                         }}
                                         disabled={detecting}
                                         className="px-3 py-2.5 bg-[#4FCEEC]/10 hover:bg-[#4FCEEC]/20 text-[#4FCEEC] border border-[#4FCEEC]/20 rounded-lg text-xs font-bold transition-colors disabled:opacity-50 whitespace-nowrap"
@@ -485,6 +530,31 @@ function MoaVimeo() {
                             </div>
                             {isCurrent && (
                                 <p className="text-[11px] text-green-400 -mt-3">This is the clip Vimeo is featuring right now.</p>
+                            )}
+                            {day.videoId && !day.hash && (
+                                <div className="-mt-3">
+                                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                                        Embed hash
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={day.hash ?? ''}
+                                        onChange={(e) => updateDay(day.date, { hash: e.target.value.trim() || null })}
+                                        placeholder="looked up automatically"
+                                        className="w-full bg-black border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:border-[#4FCEEC] focus:outline-none"
+                                    />
+                                    <p className="text-[11px] text-yellow-400 mt-1.5">
+                                        {hashError[day.date]
+                                            ? `Couldn't look up the embed hash (${hashError[day.date]}). Open vimeo.com/${day.videoId}, copy the h= value from its share link, and paste it here.`
+                                            : 'Looking up this clip\'s embed hash. Without it this day can only play while Vimeo is featuring it.'}
+                                    </p>
+                                </div>
+                            )}
+                            {day.videoId && day.hash && (
+                                <p className="text-[11px] text-gray-500 -mt-3">
+                                    Embed hash <span className="font-mono">{day.hash}</span>. Save to keep this day playable
+                                    after the event moves on to another broadcast.
+                                </p>
                             )}
 
                             {/* Anchor */}
@@ -568,6 +638,7 @@ function MoaVimeo() {
                                         <VimeoPlayer
                                             eventId={MOA.vimeoEventId}
                                             videoId={day.videoId}
+                                            hash={day.hash}
                                             onReady={(player) => { scrubPlayers.current[day.date] = player; }}
                                             onError={() => {}}
                                         />

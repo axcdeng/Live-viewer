@@ -25,7 +25,7 @@ const behindLiveOf = (liveEdge, target) => {
     return behind > 0 ? behind : null;
 };
 
-function VimeoPlayer({ eventId, videoId, onReady, onError }) {
+function VimeoPlayer({ eventId, videoId, hash = null, onReady, onError }) {
     const iframeRef = useRef(null);
     const currentTimeRef = useRef(0);
     const liveEdgeRef = useRef(null);
@@ -36,7 +36,7 @@ function VimeoPlayer({ eventId, videoId, onReady, onError }) {
         return behind === null ? `${formatTimestamp(target)} from the start` : `-${formatTimestamp(behind)}`;
     };
 
-    const src = vimeoEmbedUrl(eventId, videoId);
+    const src = vimeoEmbedUrl(eventId, videoId, { hash });
 
     useEffect(() => {
         if (!src) return undefined;
@@ -72,11 +72,11 @@ function VimeoPlayer({ eventId, videoId, onReady, onError }) {
                 return player.ready().then(async () => {
                     if (cancelled) return;
 
-                    // `?video=` is the only way to pin an event embed to a past
-                    // session — clips inside an event 401 when embedded directly.
-                    // If Vimeo ever ignores it and serves the currently-featured
-                    // clip instead, every seek would land in the wrong video at a
-                    // plausible-looking offset, so check rather than assume.
+                    // Belt and braces. The hashed player URL pins the clip, but
+                    // a day saved without a hash falls back to the event embed,
+                    // whose `?video=` parameter Vimeo silently ignores — it
+                    // serves whichever clip is featured now. Left unchecked that
+                    // seeks into the wrong recording at a plausible offset.
                     if (videoId) {
                         const loaded = await player.getVideoId().catch(() => null);
                         if (cancelled) return;

@@ -19,6 +19,9 @@ export const config = {
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 const CONFIG_URL_RE = /data-config-url="([^"]+)"/;
 const CLIP_ID_RE = /player\.vimeo\.com\/video\/(\d+)\//;
+// The unlisted hash that makes a clip embeddable on its own, straight from the
+// `?h=` on any player URL Vimeo publishes for it.
+const HASH_RE = /\/video\/\d+\?h=([a-z0-9]+)/i;
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -31,6 +34,26 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const eventId = String(req.query.eventId || '').trim();
+    const videoId = String(req.query.videoId || '').trim();
+
+    // Hash lookup for a clip we already know the id of. Needed because a past
+    // day's clip has to keep playing after the event moves on, and only the
+    // hashed player URL pins one — the event embed always serves whichever clip
+    // is currently featured, ignoring `?video=`.
+    if (videoId) {
+        if (!/^\d+$/.test(videoId)) {
+            return res.status(400).json({ error: 'videoId must be a numeric Vimeo clip id' });
+        }
+        try {
+            const hash = await fetchClipHash(videoId);
+            if (!hash) return res.status(404).json({ error: `No embed hash found for clip ${videoId}`, videoId });
+            return res.status(200).json({ videoId, hash });
+        } catch (error) {
+            console.error('[vimeo-clip] hash lookup', error);
+            return res.status(500).json({ error: 'Failed to reach Vimeo', message: error.message });
+        }
+    }
+
     if (!/^\d+$/.test(eventId)) {
         return res.status(400).json({ error: 'eventId must be a numeric Vimeo event id' });
     }
@@ -45,9 +68,9 @@ export default async function handler(req, res) {
         }
 
         const html = await embedRes.text();
-        const videoId = html.match(CLIP_ID_RE)?.[1] ?? null;
+        const currentId = html.match(CLIP_ID_RE)?.[1] ?? null;
 
-        if (!videoId) {
+        if (!currentId) {
             return res.status(404).json({
                 error: 'No clip is attached to this Vimeo event right now.',
                 eventId,
@@ -60,11 +83,29 @@ export default async function handler(req, res) {
         // failure here still leaves us with the clip id.
         const details = await fetchClipDetails(decodeEntities(html.match(CONFIG_URL_RE)?.[1] ?? ''));
 
-        return res.status(200).json({ eventId, videoId, ...details });
+        // Resolved separately from the config: the hash is what lets this clip
+        // still be played once it is no longer the featured one.
+        const hash = details.hash ?? (await fetchClipHash(currentId).catch(() => null));
+
+        return res.status(200).json({ eventId, videoId: currentId, ...details, hash });
     } catch (error) {
         console.error('[vimeo-clip]', error);
         return res.status(500).json({ error: 'Failed to reach Vimeo', message: error.message });
     }
+}
+
+// Scrape a clip's own Vimeo page for the `?h=` hash. Vimeo publishes it in the
+// page's player URL, which is also what its share/embed code uses.
+async function fetchClipHash(videoId) {
+    const res = await fetch(`https://vimeo.com/${videoId}`, {
+        headers: { 'User-Agent': UA, Accept: 'text/html' },
+    });
+    if (!res.ok) return null;
+    // Anchored to the requested id: a Vimeo page also carries player URLs for
+    // related and next-up clips, and storing one of those hashes would pin the
+    // wrong recording with nothing on screen to say so.
+    const anchored = new RegExp(`/video/${videoId}\\?h=([a-z0-9]+)`, 'i');
+    return (await res.text()).match(anchored)?.[1] ?? null;
 }
 
 async function fetchClipDetails(configUrl) {
@@ -79,6 +120,11 @@ async function fetchClipDetails(configUrl) {
         const liveEvent = video.live_event ?? null;
 
         return {
+            // Vimeo's own embed code carries the hash, so prefer it over a
+            // second page fetch when the config is available.
+            hash: String(data.video?.embed_code ?? '').match(HASH_RE)?.[1]
+                ?? video.unlisted_hash
+                ?? null,
             title: video.title ?? null,
             // 0 while a stream is live or still pending — duration only settles
             // once the session is archived.

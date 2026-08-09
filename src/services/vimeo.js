@@ -11,10 +11,25 @@
 const SDK_SRC = 'https://player.vimeo.com/api/player.js';
 
 /**
- * Embed URL for a Vimeo event, optionally pinned to one clip.
- * Without `videoId` the embed shows whatever Vimeo is currently featuring.
+ * Embed URL for one clip.
+ *
+ * Prefer the clip's own player URL: `player.vimeo.com/video/<id>?h=<hash>` is the
+ * only form that actually pins a specific recording. The event embed looks like
+ * it should — it takes a `?video=` parameter — but Vimeo silently ignores it and
+ * always serves whichever clip the event is currently featuring, so the moment a
+ * second broadcast starts, every earlier day would play the wrong footage.
+ *
+ * Without a hash there is nothing to pin with, so fall back to the event embed:
+ * correct while that clip is the featured one, which is the case for a day being
+ * broadcast right now.
  */
-export const vimeoEmbedUrl = (eventId, videoId = null, { autoplay = false } = {}) => {
+export const vimeoEmbedUrl = (eventId, videoId = null, { autoplay = false, hash = null } = {}) => {
+    if (videoId && hash) {
+        const params = new URLSearchParams({ h: String(hash) });
+        if (autoplay) params.set('autoplay', '1');
+        return `https://player.vimeo.com/video/${videoId}?${params}`;
+    }
+
     if (!eventId) return null;
     const params = new URLSearchParams();
     if (videoId) params.set('video', String(videoId));
@@ -62,6 +77,14 @@ export const fetchCurrentVimeoClip = async (eventId, apiBase = '') => {
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(data?.error || `Vimeo lookup failed (${res.status})`);
     return data;
+};
+
+/** Resolve the embed hash for a clip id (server-side scrape; no API key). */
+export const fetchVimeoClipHash = async (videoId, apiBase = '') => {
+    const res = await fetch(`${apiBase}/api/vimeo-clip?videoId=${encodeURIComponent(videoId)}`);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || `Hash lookup failed (${res.status})`);
+    return data?.hash ?? null;
 };
 
 // ---------------------------------------------------------------------------

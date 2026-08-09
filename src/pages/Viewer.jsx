@@ -110,6 +110,8 @@ function buildVimeoStreams(preset, divisions, eventStart) {
                 provider: 'vimeo',
                 vimeoEventId: String(eventId),
                 vimeoVideoId: String(day.videoId),
+                // Only the hashed player URL pins this specific recording.
+                vimeoHash: day.hash ? String(day.hash) : null,
                 anchor: day,
                 url: '',
                 videoId: null,
@@ -889,6 +891,7 @@ function Viewer() {
                     provider: 'vimeo',
                     vimeoEventId: s.vimeoEventId,
                     vimeoVideoId: s.vimeoVideoId,
+                    vimeoHash: s.vimeoHash,
                     anchor: s.anchor
                 })
             }));
@@ -1529,6 +1532,7 @@ function Viewer() {
                                                 <VimeoPlayer
                                                     eventId={stream.vimeoEventId}
                                                     videoId={stream.vimeoVideoId}
+                                                    hash={stream.vimeoHash}
                                                     onReady={(player) => {
                                                         setPlayers(prev => ({ ...prev, [stream.id]: player }));
                                                     }}

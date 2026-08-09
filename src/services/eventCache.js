@@ -101,6 +101,7 @@ export const saveEventToHistory = (event, streams) => {
             provider: s.provider,
             vimeoEventId: s.vimeoEventId,
             vimeoVideoId: s.vimeoVideoId,
+            vimeoHash: s.vimeoHash,
             anchor: s.anchor
         })),
         lastAccessed: timestamp,
