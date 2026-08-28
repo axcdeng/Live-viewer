@@ -16,7 +16,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'OPTIONS') return res.status(200).end();
 
-    const { sku, offsetSeconds = '0' } = req.query;
+    const { sku, offsetSeconds = '0', streams: adHocStreams } = req.query;
 
     if (!sku) {
         return res.status(400).json({ error: 'Missing required parameter: sku' });
@@ -31,7 +31,9 @@ export default async function handler(req, res) {
         // 1. Verify preset exists in Edge Config
         const edgeClient = createClient(process.env.EDGE_CONFIG);
         const routes = await edgeClient.get('routes') || [];
-        const preset = routes.find(r => r.sku === sku);
+        // An event nobody has set up can still be answered, if the caller says
+        // which recordings to measure against. See adHocPreset.
+        const preset = routes.find(r => r.sku === sku) || adHocPreset(sku, adHocStreams);
 
         if (!preset) {
             return res.status(404).json({ error: 'Event not found in presets' });
@@ -237,6 +239,74 @@ function vimeoTimestampFor(match, preset, vimeoDays, offset) {
         videoId: null,
         vimeo: { eventId, videoId: day.videoId, hash: day.hash },
     };
+}
+
+// ---------------------------------------------------------------------------
+// Events nobody has set up
+//
+// A preset exists because somebody had to find the recordings by hand. The
+// arithmetic afterwards needs nothing but the video ids: this server holds both
+// keys — RobotEvents for the schedule, YouTube for when each broadcast actually
+// started — and a caller that has found the recordings itself is only missing
+// those two lookups.
+//
+// So `streams` may be passed in the query, in exactly the shape a preset stores
+// it, and it is used only when the SKU has no preset of its own. A real preset
+// always wins: it was set up deliberately, and its day and division mapping is
+// known good.
+//
+// Nothing is written anywhere. This is a read with the caller's own list, not a
+// way to add a preset — save-routes is still the only thing that does that.
+// ---------------------------------------------------------------------------
+
+// A YouTube id is eleven of these and nothing else. Checked rather than trusted:
+// every id here is interpolated into a googleapis URL below.
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+// Enough for a four-day event in four divisions. The cap is what stops this
+// endpoint being a way to spend the YouTube quota a thousand ids at a time.
+const AD_HOC_MAX_IDS = 16;
+
+function adHocPreset(sku, raw) {
+    if (!raw) return null;
+
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+
+    // Either a bare list of ids in day order, or those lists keyed by division -
+    // the two shapes a preset's `streams` already comes in.
+    const lists = Array.isArray(parsed)
+        ? { 1: parsed }
+        : (parsed && typeof parsed === 'object' ? parsed : null);
+    if (!lists) return null;
+
+    const streams = {};
+    const seen = new Set();
+
+    for (const [division, days] of Object.entries(lists)) {
+        if (!Array.isArray(days)) continue;
+        if (!/^[0-9]+$/.test(String(division))) continue;
+
+        // Blanks are kept in place, not dropped: the position in this list *is*
+        // the day, so a missing day one has to stay a hole rather than shifting
+        // day two into it.
+        const cleaned = days.map((id) => {
+            const value = typeof id === 'string' ? id.trim() : '';
+            if (!VIDEO_ID.test(value)) return '';
+            seen.add(value);
+            return value;
+        });
+
+        if (cleaned.some(Boolean)) streams[division] = cleaned;
+    }
+
+    if (!Object.keys(streams).length) return null;
+    if (seen.size > AD_HOC_MAX_IDS) return null;
+
+    return { sku, streams, adHoc: true };
 }
 
 function getVideoId(preset, divisionId, dayIndex) {
