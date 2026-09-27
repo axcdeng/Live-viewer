@@ -71,13 +71,12 @@ export default async function handler(req, res) {
         const allMatches = divisionMatches.flat();
 
         // 4. Determine which video IDs are needed, fetch their YouTube start times
+        // Every stream a division could use, not just the one its calendar day
+        // points at: pickVideoId needs all their start times to choose between them.
         const neededVideoIds = new Set();
         for (const match of allMatches) {
             if (!match.started) continue;
-            const matchStartMs = new Date(match.started).getTime();
-            const dayIndex = Math.max(0, Math.floor((matchStartMs - eventStartMs) / (1000 * 60 * 60 * 24)));
-            const videoId = getVideoId(preset, String(match.division?.id || 1), dayIndex);
-            if (videoId) neededVideoIds.add(videoId);
+            for (const id of divisionVideoIds(preset, String(match.division?.id || 1))) neededVideoIds.add(id);
         }
 
         const streamStartTimes = await fetchStreamStartTimes([...neededVideoIds], ytApiKey);
@@ -102,7 +101,7 @@ export default async function handler(req, res) {
             const dayIndex = matchStartMs !== null
                 ? Math.max(0, Math.floor((matchStartMs - eventStartMs) / (1000 * 60 * 60 * 24)))
                 : 0;
-            const videoId = getVideoId(preset, divisionId, dayIndex);
+            const videoId = pickVideoId(preset, divisionId, dayIndex, matchStartMs, streamStartTimes);
             const streamStartMs = videoId ? streamStartTimes[videoId] ?? null : null;
 
             let timestamp = null;
@@ -331,6 +330,45 @@ function getVideoId(preset, divisionId, dayIndex) {
     }
 
     return videoId || null; // treat empty string as null
+}
+
+// The division's streams in preset order, deduped, empty slots dropped.
+function divisionVideoIds(preset, divisionId) {
+    let list = [];
+    if (preset.multiStreams) {
+        const divStreams = preset.multiStreams[divisionId]
+            ?? preset.multiStreams[Object.keys(preset.multiStreams)[0]];
+        if (divStreams) list = Object.values(divStreams);
+    } else if (Array.isArray(preset.streams)) {
+        list = preset.streams;
+    } else if (preset.streams) {
+        const divStreams = preset.streams[divisionId]
+            ?? preset.streams[Object.keys(preset.streams)[0]];
+        if (Array.isArray(divStreams)) list = divStreams;
+    }
+    return [...new Set(list.filter(id => typeof id === 'string' && id))];
+}
+
+// Which stream covers a match. The preset's day slots are match days, but the
+// calendar-day index counts from the event's start date, so any date with no
+// matches (a check-in day, a Friday of inspection) shifts every later match onto
+// the wrong stream — or past the last one, where getVideoId falls back to day 1.
+// The Highlander Summit 2026 (Sep 25–27, matches on the 26th and 27th) served its
+// eliminations from the day-1 video at a 29-hour offset that way.
+//
+// YouTube reports when each stream went live, so the stream for a match is the
+// one that most recently went live before the match started. A match earlier
+// than every stream belongs to the first. Streams YouTube has no start time for
+// are left out; with fewer than two known, the calendar-day pick stands.
+function pickVideoId(preset, divisionId, dayIndex, matchStartMs, streamStartTimes) {
+    const byDay = getVideoId(preset, divisionId, dayIndex);
+    if (matchStartMs === null) return byDay;
+    const known = divisionVideoIds(preset, divisionId)
+        .filter(id => Number.isFinite(streamStartTimes[id]))
+        .sort((a, b) => streamStartTimes[a] - streamStartTimes[b]);
+    if (known.length < 2) return byDay;
+    const live = known.filter(id => streamStartTimes[id] <= matchStartMs);
+    return live.length ? live[live.length - 1] : known[0];
 }
 
 async function fetchStreamStartTimes(videoIds, ytApiKey) {
