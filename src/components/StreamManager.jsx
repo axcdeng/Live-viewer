@@ -420,7 +420,8 @@ function StreamManager({
                                 <StreamInput
                                     stream={stream}
                                     loading={loading[stream.id]}
-                                    error={errors[stream.id]}
+                                    // A start restored from a manual sync makes the detection warning moot.
+                                    error={stream.streamStartTime ? null : errors[stream.id]}
                                     canRemove={streams.length > 1}
                                     onUrlChange={(url) => handleStreamUrlChange(stream.id, url)}
                                     onRemove={() => removeStream(stream.id)}

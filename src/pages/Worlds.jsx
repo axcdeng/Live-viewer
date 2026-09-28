@@ -1,14 +1,24 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 import { useQueryState } from 'nuqs';
+import { useNavigate } from 'react-router-dom';
 import {
     Tv, Globe, ChevronDown,
     Loader, Play, Pause, Zap, Trophy, Users, Medal, Search,
-    Rewind, FastForward, RotateCcw, RotateCw, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, Info,
-    Volume2, VolumeX, Maximize, Minimize,
+    Rewind, FastForward, RotateCcw, RotateCw, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight,
+    Volume2, VolumeX, Maximize, Minimize, History, Settings, Github,
 } from 'lucide-react';
 import WordPressHeader from '../components/WordPressHeader';
 import JumperMobileBanner from '../components/JumperMobileBanner';
+import SettingsModal from '../components/SettingsModal';
+import EventHistory from '../components/EventHistory';
+import {
+    SyncCalibrationStrip,
+    HoverInfoCard,
+    formatOffsetInputValue,
+    parseOffsetInputValue,
+    formatOffsetSummary,
+} from '../components/SyncCalibrationStrip';
 import { WORLDS_PROGRAMS, WORLDS_YEARS, getProgConfig } from '../data/worldsConfig';
 import { fetchChannelBroadcasts, groupBroadcasts, resolveBroadcast, fetchBroadcastPlaylist } from '../services/boxcast';
 import { getEventBySku, findWorldsEvent, getMatchesForEvent, getRankingsForEvent, findTeamDivisionAtEvent } from '../services/robotevents';
@@ -115,38 +125,6 @@ function groupMatchesByDay(list, allMatches, eventStartDate, dayLabels = []) {
         .sort((a, b) => a.dayIndex - b.dayIndex);
 }
 
-function formatOffsetInputValue(totalSeconds) {
-    const absSeconds = Math.max(0, Math.round(totalSeconds));
-    const minutes = Math.floor(absSeconds / 60);
-    const seconds = absSeconds % 60;
-    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-
-function parseOffsetInputValue(value) {
-    const trimmed = value.trim();
-    if (!trimmed) return 0;
-
-    if (/^\d+$/.test(trimmed)) {
-        return Number(trimmed);
-    }
-
-    const parts = trimmed.split(':');
-    if (parts.length !== 2 || !/^\d+$/.test(parts[0]) || !/^\d{1,2}$/.test(parts[1])) {
-        return null;
-    }
-
-    const minutes = Number(parts[0]);
-    const seconds = Number(parts[1]);
-    if (seconds >= 60) return null;
-
-    return (minutes * 60) + seconds;
-}
-
-function formatOffsetSummary(offsetSeconds) {
-    if (!offsetSeconds) return '00:00';
-    return `${offsetSeconds > 0 ? '+' : '-'}${formatOffsetInputValue(Math.abs(offsetSeconds))}`;
-}
-
 function encodeWorldsTab(tab) {
     return TAB_TO_QUERY[tab] ?? TAB_TO_QUERY[DEFAULT_TAB];
 }
@@ -159,11 +137,6 @@ function parseWorldsDayParam(value) {
     if (!value) return 0;
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed >= 1 ? parsed - 1 : 0;
-}
-
-function truncateLabel(label, maxLength = 26) {
-    if (!label) return '';
-    return label.length > maxLength ? `${label.slice(0, maxLength - 1)}…` : label;
 }
 
 function formatTimecode(seconds) {
@@ -519,136 +492,6 @@ function PlaybackControls({ canControl, canSync, onSeek, onSynced }) {
     );
 }
 
-function HoverInfoCard({ title, body, className = '' }) {
-    return (
-        <div className={`relative group/info ${className}`}>
-            <button
-                type="button"
-                className="rounded-full p-1 text-gray-500 transition-colors hover:bg-gray-800 hover:text-[#4FCEEC]"
-                aria-label={title}
-            >
-                <Info className="w-3.5 h-3.5" />
-            </button>
-            <div className="pointer-events-none absolute right-0 bottom-full z-[120] mb-3 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-gray-800 bg-[#0b1220] p-3 text-left shadow-2xl shadow-black/50 opacity-0 translate-y-1 transition-all duration-150 group-hover/info:pointer-events-auto group-hover/info:opacity-100 group-hover/info:translate-y-0">
-                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#4FCEEC]">{title}</div>
-                <div className="mt-1 text-xs leading-5 text-gray-300">{body}</div>
-            </div>
-        </div>
-    );
-}
-
-function SyncCalibrationStrip({
-    disabled,
-    offsetSeconds,
-    offsetInput,
-    offsetDirection,
-    offsetInputInvalid,
-    onOffsetInputChange,
-    onOffsetInputCommit,
-    onOffsetDirectionChange,
-    onOffsetReset,
-    canCalibrate,
-    calibrationLabel,
-    onUseCurrentFrame,
-    scope,
-    onScopeChange,
-}) {
-    const isDivisionScope = scope === SYNC_SCOPE_DIVISION;
-    return (
-        <div className={`space-y-2.5 transition-opacity duration-300 ${disabled ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <HoverInfoCard
-                        title="Scope"
-                        body="Choose whether the saved offset applies only to the day you calibrated, or to every day of this division. Per-day is more accurate since streams usually start at different times each day; all-days is easier if you just want one rough correction for the whole division."
-                    />
-                    <div className="flex items-center rounded-lg border border-gray-800 bg-black/50 p-0.5">
-                        <button
-                            onClick={() => onScopeChange(SYNC_SCOPE_DAY)}
-                            className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${!isDivisionScope ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
-                            title="Offset applies only to this day"
-                        >
-                            This Day
-                        </button>
-                        <button
-                            onClick={() => onScopeChange(SYNC_SCOPE_DIVISION)}
-                            className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors ${isDivisionScope ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
-                            title="Offset applies to every day of this division"
-                        >
-                            All Days
-                        </button>
-                    </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <HoverInfoCard
-                        title="Offset"
-                        body="Use this when every jump is consistently off by about the same amount. Pick + when the stream needs a positive correction (jumps land a bit later) and − when it needs a negative correction (jumps land a bit earlier)."
-                    />
-                    <div className="flex items-center rounded-lg border border-gray-800 bg-black/50 p-0.5">
-                        <button
-                            onClick={() => onOffsetDirectionChange('later')}
-                            className={`h-6 w-6 rounded-md text-sm font-bold transition-colors ${offsetDirection === 'later' ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
-                            title="Later — jumps land a bit later in the video"
-                        >
-                            +
-                        </button>
-                        <button
-                            onClick={() => onOffsetDirectionChange('earlier')}
-                            className={`h-6 w-6 rounded-md text-sm font-bold transition-colors ${offsetDirection === 'earlier' ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
-                            title="Earlier — jumps land a bit earlier in the video"
-                        >
-                            −
-                        </button>
-                    </div>
-                    <input
-                        type="text"
-                        value={offsetInput}
-                        onChange={(e) => onOffsetInputChange(e.target.value)}
-                        onBlur={onOffsetInputCommit}
-                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                        inputMode="numeric"
-                        placeholder="00:00"
-                        aria-label="Offset (mm:ss)"
-                        className={`h-7 w-16 rounded-md border px-1.5 text-[11px] font-semibold text-center outline-none transition-colors ${offsetInputInvalid ? 'border-red-500 bg-red-500/10 text-red-100' : 'border-gray-800 bg-black/50 text-white focus:border-[#4FCEEC]'}`}
-                    />
-                    <button
-                        onClick={onOffsetReset}
-                        className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${offsetSeconds ? 'text-gray-400 hover:bg-gray-800 hover:text-white' : 'text-gray-700 cursor-not-allowed'}`}
-                        title="Reset offset"
-                        aria-label="Reset offset"
-                        disabled={!offsetSeconds}
-                    >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                    </button>
-                </div>
-            </div>
-
-            {offsetInputInvalid && (
-                <p className="text-[10px] font-medium text-red-300">Use mm:ss format</p>
-            )}
-
-            <div className="flex items-center justify-between gap-3 border-t border-gray-800/70 pt-2.5">
-                <p className="text-[11px] text-gray-400 min-w-0 truncate">
-                    {canCalibrate ? `Ready: ${truncateLabel(calibrationLabel, 32)}` : calibrationLabel}
-                </p>
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <HoverInfoCard
-                        title="How to Calibrate"
-                        body="1. Jump to a match. 2. Scrub the video to where the match actually starts. 3. Press Use Current Frame. The correction is saved under the scope you picked (this day only, or every day of the division)."
-                    />
-                    <button
-                        onClick={onUseCurrentFrame}
-                        disabled={!canCalibrate}
-                        className={`rounded-md px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors shrink-0 ${canCalibrate ? 'bg-[#4FCEEC] text-black hover:bg-[#3db8d6]' : 'bg-gray-900 text-gray-600 cursor-not-allowed'}`}
-                    >
-                        Use Current Frame
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
 function InlineSelectField({ value, onChange, options, className = '' }) {
     return (
         <div className={`relative group ${className}`}>
@@ -807,6 +650,10 @@ function TeamCard({ ranking, onSelect }) {
 // ---------------------------------------------------------------------------
 
 export default function Worlds() {
+    const navigate = useNavigate();
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [showEventHistory, setShowEventHistory] = useState(false);
+
     // URL-backed selectors
     const [urlProgram, setUrlProgram] = useQueryState('program', { history: 'push' });
     const [urlYear, setUrlYear] = useQueryState('year', { history: 'push' });
@@ -2084,8 +1931,32 @@ export default function Worlds() {
                 </div>
             </main>
 
-            {/* Floating Clear All (Bottom Left) */}
-            <div className="fixed bottom-4 left-4 z-40">
+            {/* Floating Controls (Bottom Left) — same set as the Viewer */}
+            <div className="fixed bottom-4 left-4 z-40 flex gap-2">
+                <button
+                    onClick={() => setShowEventHistory(true)}
+                    className="p-3 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm"
+                    title="Event History"
+                >
+                    <History className="w-5 h-5 text-gray-300 hover:text-white" />
+                </button>
+                <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="p-3 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm"
+                    title="Settings"
+                >
+                    <Settings className="w-5 h-5 text-gray-300 hover:text-white" />
+                </button>
+                <a
+                    href="https://github.com/axcdeng/Live-viewer"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-3 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm"
+                    title="View on GitHub"
+                >
+                    <Github className="w-5 h-5 text-gray-300 hover:text-white" />
+                </a>
+                <div className="w-px h-8 bg-gray-800 self-center mx-1"></div>
                 <button
                     onClick={handleClearAll}
                     className="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-full transition-all shadow-lg hover:shadow-xl backdrop-blur-sm group"
@@ -2094,6 +1965,19 @@ export default function Worlds() {
                     <RotateCcw className="w-5 h-5 text-red-400 group-hover:text-red-300" />
                 </button>
             </div>
+
+            <SettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
+            />
+
+            {/* History holds regular events, which only the Viewer can play, so
+                picking one hands it over to the Viewer to load. */}
+            <EventHistory
+                isOpen={showEventHistory}
+                onClose={() => setShowEventHistory(false)}
+                onSelectEvent={(historyEntry) => navigate('/', { state: { historyEntry } })}
+            />
         </div>
     );
 }
