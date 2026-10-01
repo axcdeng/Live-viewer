@@ -75,8 +75,8 @@ export default async function handler(req, res) {
             }
         }
 
-        // 3. Scrape RobotEvents
-        const robotEventsUrl = `https://www.robotevents.com/robot-competitions/vex-robotics-competition/${sku}.html`;
+        // 3. Scrape VEX Events
+        const robotEventsUrl = `https://events.vex.com/events/${sku}`;
         const scrapedLinks = await scrapeRobotEvents(robotEventsUrl);
         console.log(`[SCRAPE] Found ${scrapedLinks.length} links`);
 
