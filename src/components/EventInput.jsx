@@ -19,9 +19,9 @@ const EventInput = ({ onEventFound }) => {
 
         try {
             // Extract SKU from URL (e.g., RE-VRC-XX-XXXX)
-            const skuMatch = url.match(/(RE-[A-Z]+-\d{2}-\d{4})/);
+            const skuMatch = url.match(/((?:RE|VE)-[A-Z0-9]+-\d{2}-\d+)/i);
             if (!skuMatch) {
-                throw new Error('Invalid RobotEvents URL. Could not find SKU.');
+                throw new Error('Invalid event URL. Could not find SKU.');
             }
             const sku = skuMatch[1];
 
@@ -78,7 +78,7 @@ const EventInput = ({ onEventFound }) => {
                                 value={url}
                                 onChange={(e) => setUrl(e.target.value)}
                                 className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                                placeholder="https://www.robotevents.com/robot-competitions/vex-robotics-competition/..."
+                                placeholder="https://events.vex.com/robot-competitions/vex-robotics-competition/..."
                             />
                             <button
                                 onClick={handleSearch}

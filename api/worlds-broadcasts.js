@@ -19,7 +19,8 @@ export default async function handler(req, res) {
 
     const { channelId, year } = req.query;
 
-    if (!channelId) {
+    // Interpolated into the BoxCast URL path, so only an id's own characters pass.
+    if (!channelId || !/^[A-Za-z0-9_-]+$/.test(channelId)) {
         return res.status(400).json({ error: 'channelId is required' });
     }
 

@@ -4,12 +4,14 @@ import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronD
 import { getEventBySku } from '../services/robotevents';
 import { calculateEventDays } from '../utils/streamMatching';
 import { extractVideoId } from '../services/youtube';
+import { adminLogin, clearAdminToken, getAdminToken, saveRoutes } from '../adminAuth';
 
 const extractSku = (text) => {
     if (!text) return '';
     // Handle full RobotEvents URL
-    // e.g. https://www.robotevents.com/robot-competitions/vex-robotics-competition/RE-VRC-24-5219.html
-    const skuMatch = text.match(/(RE-[A-Z0-9-]+)/i);
+    // e.g. https://events.vex.com/robot-competitions/vex-robotics-competition/RE-VRC-24-5219.html
+    // VEX issues both RE- and VE- SKUs.
+    const skuMatch = text.match(/((?:RE|VE)-[A-Z0-9-]+)/i);
     if (skuMatch) return skuMatch[1].toUpperCase();
     return text.trim().toUpperCase();
 };
@@ -46,9 +48,10 @@ function Admin() {
     const [headerCopied, setHeaderCopied] = useState(false);
 
     useEffect(() => {
-        const sessionAuth = sessionStorage.getItem('adminAuth');
-        if (sessionAuth === 'true') {
+        if (getAdminToken()) {
             setIsAuthenticated(true);
+        } else {
+            clearAdminToken();
         }
 
         fetchRoutes();
@@ -78,20 +81,21 @@ function Admin() {
         }
     };
 
-    const handleLogin = (e) => {
+    const handleLogin = async (e) => {
         e.preventDefault();
-        if (username === 'axcdeng' && password === 'robost3m@jump') {
+        const result = await adminLogin(username, password);
+        if (result === 'ok') {
             setIsAuthenticated(true);
-            sessionStorage.setItem('adminAuth', 'true');
+            setPassword('');
             setError('');
         } else {
-            setError('Invalid credentials');
+            setError(result === 'denied' ? 'Invalid credentials' : 'Could not reach the login server');
         }
     };
 
     const handleLogout = () => {
         setIsAuthenticated(false);
-        sessionStorage.removeItem('adminAuth');
+        clearAdminToken();
     };
 
     const handleAutoDetect = async () => {
@@ -233,13 +237,12 @@ function Admin() {
 
     const handleAutoSave = async (updatedRoutes) => {
         try {
-            const response = await fetch('/api/save-routes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedRoutes),
-            });
+            const response = await saveRoutes(updatedRoutes);
 
-            if (response.ok) {
+            if (response.status === 401) {
+                handleLogout();
+                setError('Your login was not accepted. Log in again, then save.');
+            } else if (response.ok) {
                 setSuccessMessage('Successfully saved to cloud!');
                 setTimeout(() => setSuccessMessage(''), 3000);
             } else {

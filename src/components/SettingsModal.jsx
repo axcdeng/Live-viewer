@@ -49,7 +49,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                         <label className="block text-sm font-medium text-[#4FCEEC] mb-1 flex items-center justify-between">
                             <span>RobotEvents API Key (Optional)</span>
                             <a
-                                href="https://www.robotevents.com/api/v2"
+                                href="https://events.vex.com/api/v2"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-xs text-gray-400 hover:text-[#4FCEEC] flex items-center gap-1"

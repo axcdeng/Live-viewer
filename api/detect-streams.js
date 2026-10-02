@@ -6,7 +6,7 @@ import * as cheerio from 'cheerio';
  * 
  * Automatically detects YouTube livestreams for VEX events by:
  * 1. Checking cache first (Vercel KV)
- * 2. Scraping RobotEvents webcast section
+ * 2. Scraping the events.vex.com webcast section
  * 3. Searching YouTube API for channel streams
  * 4. Matching streams to divisions
  * 
@@ -23,8 +23,11 @@ export const config = {
     maxDuration: 60, // 60 second timeout for reliable scraping
 };
 
-// Cache TTL: 1 hour
+// Cache TTL: 1 hour for streams found, 10 minutes for none — an empty answer is
+// the one that goes stale, since organisers add the webcast link during the event.
 const CACHE_TTL = 3600;
+const EMPTY_CACHE_TTL = 600;
+const SKU_RE = /^(?:RE|VE)-[A-Z0-9]+-\d{2}-\d+$/i;
 
 export default async function handler(req, res) {
     // Set CORS headers
@@ -42,6 +45,10 @@ export default async function handler(req, res) {
         return res.status(400).json({
             error: 'Missing required parameters: sku, eventStart, eventEnd'
         });
+    }
+
+    if (!SKU_RE.test(sku)) {
+        return res.status(400).json({ error: 'Invalid sku' });
     }
 
     const cacheKey = `stream_cache:${sku}`;
@@ -63,7 +70,7 @@ export default async function handler(req, res) {
             console.log(`[CACHE SKIP] nocache parameter set`);
         }
 
-        console.log(`[CACHE MISS] ${sku} - Scraping RobotEvents...`);
+        console.log(`[CACHE MISS] ${sku} - Scraping events.vex.com...`);
 
         // 2. Parse divisions if provided
         let divisions = [];
@@ -75,9 +82,10 @@ export default async function handler(req, res) {
             }
         }
 
-        // 3. Scrape RobotEvents
-        const robotEventsUrl = `https://www.robotevents.com/robot-competitions/vex-robotics-competition/${sku}.html`;
-        const scrapedLinks = await scrapeRobotEvents(robotEventsUrl);
+        // 3. Scrape the event page. robotevents.com no longer carries VEX events.
+        const program = /^[A-Z]{2}-V?IQ/i.test(sku) ? 'vex-iq-competition' : 'vex-robotics-competition';
+        const eventUrl = `https://events.vex.com/robot-competitions/${program}/${encodeURIComponent(sku)}.html`;
+        const scrapedLinks = await scrapeEventPage(eventUrl);
         console.log(`[SCRAPE] Found ${scrapedLinks.length} links`);
 
         // 4. Process links
@@ -126,7 +134,7 @@ export default async function handler(req, res) {
             cachedAt: new Date().toISOString()
         };
 
-        await kv.set(cacheKey, cacheData, { ex: CACHE_TTL });
+        await kv.set(cacheKey, cacheData, { ex: streams.length ? CACHE_TTL : EMPTY_CACHE_TTL });
 
         return res.status(200).json({
             streams,
@@ -145,82 +153,32 @@ export default async function handler(req, res) {
 
 // ===== Helper Functions =====
 
-async function scrapeRobotEvents(url) {
+async function scrapeEventPage(url) {
     const links = [];
 
     try {
-        console.log(`[SCRAPE] Fetching ${url} (Parallel Strategies)`);
+        console.log(`[SCRAPE] Fetching ${url}`);
 
-        // Helper to validate HTML content
-        const validateContent = (html, source) => {
-            if (!html || html.length < 500) throw new Error(`${source}: Content too short`);
-            if (html.includes('id="challenge-running"') || html.includes('Just a moment...')) {
-                throw new Error(`${source}: Cloudflare challenge detected`);
-            }
-            return html;
-        };
-
-        // Strategy 1: Googlebot User Agent
-        const fetchGooglebot = async () => {
-            try {
-                const res = await fetch(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                        'Referer': 'https://www.google.com/',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-                    }
-                });
-                if (!res.ok) throw new Error(`Googlebot failed: ${res.status}`);
-                const html = await res.text();
-                return validateContent(html, 'Googlebot');
-            } catch (e) { throw e; }
-        };
-
-        // Strategy 2: Standard User Agent
-        const fetchStandard = async () => {
-            try {
-                const res = await fetch(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-                    },
-                    signal: AbortSignal.timeout(8000) // 8s timeout for standard
-                });
-                if (!res.ok) throw new Error(`Standard UA failed: ${res.status}`);
-                const html = await res.text();
-                return validateContent(html, 'Standard UA');
-            } catch (e) { throw e; }
-        };
-
-        // Strategy 3: CORS Proxy
-        const fetchProxy = async () => {
-            try {
-                // Add a small delay for proxy to prioritize direct methods first if they are fast
-                await new Promise(r => setTimeout(r, 100));
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-                const res = await fetch(proxyUrl, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    },
-                    signal: AbortSignal.timeout(15000) // Longer timeout for proxy
-                });
-                if (!res.ok) throw new Error(`Proxy failed: ${res.status}`);
-                const html = await res.text();
-                return validateContent(html, 'Proxy');
-            } catch (e) { throw e; }
-        };
-
-        // Race them! First one to return VALID content wins.
-        let html = null;
+        // One browser-UA fetch. A Googlebot UA is challenged by events.vex.com's
+        // Cloudflare on every caller, and the free corsproxy.io tier now refuses
+        // server-side calls, so both only ever added latency.
+        let html;
         try {
-            html = await Promise.any([
-                fetchGooglebot(),
-                fetchStandard(),
-                fetchProxy()
-            ]);
-            console.log(`[SCRAPE] Successful fetch!`);
-        } catch (aggregateError) {
-            console.error('[SCRAPE] All parallel fetch strategies failed', aggregateError);
+            const res = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+                },
+                signal: AbortSignal.timeout(10000)
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            html = await res.text();
+            if (html.length < 500) throw new Error('Content too short');
+            if (html.includes('id="challenge-running"') || html.includes('Just a moment...')) {
+                throw new Error('Cloudflare challenge');
+            }
+        } catch (fetchError) {
+            console.error('[SCRAPE] Event page fetch failed', fetchError);
             return links;
         }
 
@@ -527,67 +485,4 @@ function normalizeStreams(videos, eventStart, eventEnd, divisions) {
 function formatDate(date) {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return `${months[date.getMonth()]} ${date.getDate()}`;
-}
-
-async function fetchEventDetails(sku, apiKey) {
-    try {
-        const response = await fetch(`https://events.vex.com/api/v2/events?sku[]=${sku}`, {
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json'
-            }
-        });
-
-        if (!response.ok) return null;
-
-        const data = await response.json();
-        return data.data?.[0] || null;
-    } catch (e) {
-        console.error('Error fetching event details:', e);
-        return null;
-    }
-}
-
-async function searchYoutubeByQuery(query, eventStart, eventEnd, apiKey) {
-    const videos = [];
-    try {
-        // Search for videos within the event window
-        const startDate = new Date(eventStart);
-        startDate.setDate(startDate.getDate() - 1);
-        const publishedAfter = startDate.toISOString();
-
-        const endDate = new Date(eventEnd);
-        endDate.setDate(endDate.getDate() + 1);
-        const publishedBefore = endDate.toISOString();
-
-        const searchUrl = `https://www.googleapis.com/youtube/v3/search?` +
-            `part=snippet&q=${encodeURIComponent(query)}&type=video` +
-            `&publishedAfter=${publishedAfter}&publishedBefore=${publishedBefore}` +
-            `&maxResults=5&key=${apiKey}`;
-
-        const res = await fetch(searchUrl);
-        const data = await res.json();
-
-        if (data.items) {
-            for (const item of data.items) {
-                // Filter out irrelevant results if possible (simple heuristic)
-                if (item.snippet.title.toLowerCase().includes('live') ||
-                    item.snippet.title.toLowerCase().includes('stream') ||
-                    item.snippet.title.toLowerCase().includes('day') ||
-                    item.snippet.title.toLowerCase().match(/v\drc/i)) {
-
-                    videos.push({
-                        videoId: item.id.videoId,
-                        label: item.snippet.title,
-                        publishedAt: item.snippet.publishedAt,
-                        divisionHint: extractDivisionFromTitle(item.snippet.title),
-                        isFallback: true
-                    });
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Error searching YouTube by query:', error);
-    }
-    return videos;
 }

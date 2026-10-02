@@ -7,6 +7,8 @@ export const config = {
 };
 
 const RE_API = 'https://events.vex.com/api/v2';
+
+class UpstreamError extends Error {}
 const YT_START_CACHE_TTL = 86400; // 24 hours
 
 export default async function handler(req, res) {
@@ -28,9 +30,13 @@ export default async function handler(req, res) {
     const reHeaders = { 'Authorization': `Bearer ${reApiKey}`, 'Accept': 'application/json' };
 
     try {
-        // 1. Verify preset exists in Edge Config
+        // 1. The preset and the event's metadata (ID, divisions, start date) only
+        // need the SKU, so they are fetched together.
         const edgeClient = createClient(process.env.EDGE_CONFIG);
-        const routes = await edgeClient.get('routes') || [];
+        const [routes, eventRes] = await Promise.all([
+            edgeClient.get('routes').then(r => r || []),
+            fetch(`${RE_API}/events?sku[]=${encodeURIComponent(sku)}`, { headers: reHeaders }),
+        ]);
         // An event nobody has set up can still be answered, if the caller says
         // which recordings to measure against. See adHocPreset.
         const preset = routes.find(r => r.sku === sku) || adHocPreset(sku, adHocStreams);
@@ -39,8 +45,7 @@ export default async function handler(req, res) {
             return res.status(404).json({ error: 'Event not found in presets' });
         }
 
-        // 2. Fetch event metadata (ID, divisions, start date)
-        const eventRes = await fetch(`${RE_API}/events?sku[]=${sku}`, { headers: reHeaders });
+        // 2. Event metadata
         if (!eventRes.ok) return res.status(502).json({ error: 'Failed to fetch event' });
 
         const eventData = await eventRes.json();
@@ -50,7 +55,9 @@ export default async function handler(req, res) {
         const eventStartMs = new Date(event.start).getTime();
         const divisions = event.divisions?.length ? event.divisions : [{ id: 1 }];
 
-        // 3. Fetch all matches across all divisions in parallel (paginated)
+        // 3. Fetch all matches across all divisions in parallel (paginated).
+        // A failed page fails the request: answering with part of the schedule
+        // would read as "these matches have no video", and callers cache that.
         const divisionMatches = await Promise.all(divisions.map(async (div) => {
             const matches = [];
             let page = 1;
@@ -59,7 +66,7 @@ export default async function handler(req, res) {
                     `${RE_API}/events/${event.id}/divisions/${div.id}/matches?per_page=250&page=${page}`,
                     { headers: reHeaders }
                 );
-                if (!r.ok) break;
+                if (!r.ok) throw new UpstreamError(`Matches for division ${div.id} returned ${r.status}`);
                 const d = await r.json();
                 matches.push(...(d.data || []));
                 if (d.meta?.current_page >= d.meta?.last_page) break;
@@ -127,6 +134,9 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error('[match-timestamp]', error);
+        if (error instanceof UpstreamError) {
+            return res.status(502).json({ error: 'Failed to fetch matches', message: error.message });
+        }
         return res.status(500).json({ error: 'Internal server error', message: error.message });
     }
 }

@@ -343,7 +343,7 @@ function Viewer() {
                 if (urlSku) {
                     const foundEvent = await getEventBySku(urlSku);
                     setEvent(foundEvent);
-                    setEventUrl(`https://www.robotevents.com/${urlSku}.html`);
+                    setEventUrl(`https://events.vex.com/robot-competitions/vex-robotics-competition/${urlSku}.html`);
 
                     // Initialize streams for the event (triggers popup and basic setup)
                     let initializedStreams = await initializeStreamsForEvent(foundEvent);
@@ -678,9 +678,9 @@ function Viewer() {
         urlPresetRef.current = null; // Sync ref immediately
 
         try {
-            const skuMatch = eventUrl.match(/(RE-[A-Z0-9]+-\d{2}-\d{4})/);
+            const skuMatch = eventUrl.match(/((?:RE|VE)-[A-Z0-9]+-\d{2}-\d+)/i);
             if (!skuMatch) {
-                throw new Error('Invalid RobotEvents URL. Could not find SKU.');
+                throw new Error('Invalid event URL. Could not find SKU.');
             }
             const sku = skuMatch[1];
             setUrlSku(sku); // Set SKU immediately
@@ -873,7 +873,7 @@ function Viewer() {
         }
 
         setEvent(reconstructedEvent);
-        setEventUrl(`https://www.robotevents.com/${historyEntry.eventSku}.html`);
+        setEventUrl(`https://events.vex.com/robot-competitions/vex-robotics-competition/${historyEntry.eventSku}.html`);
 
         // If history has streams, restore them. Otherwise, initialize fresh ones.
         if (historyEntry.streams && historyEntry.streams.length > 0) {
@@ -954,7 +954,7 @@ function Viewer() {
             let foundEvent = await getEventBySku(preset.sku);
             setEvent(foundEvent);
             // Correct the robotevents URL format
-            setEventUrl(`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${preset.sku}.html`);
+            setEventUrl(`https://events.vex.com/robot-competitions/vex-robotics-competition/${preset.sku}.html`);
 
             const days = calculateEventDays(foundEvent.start, foundEvent.end);
 
@@ -1675,7 +1675,7 @@ function Viewer() {
                                     {noWebcastsFound && !isDetecting && !showStreamSuccess && !streams.some(hasStreamVideo) && (
                                         <p className="text-yellow-500 text-xs text-center sm:text-left mt-2 animate-fade-in">
                                             No webcasts found automatically. Please paste the URL manually. <br className="sm:hidden" />
-                                            Check <a href={`https://www.robotevents.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.
+                                            Check <a href={`https://events.vex.com/robot-competitions/vex-robotics-competition/${event.sku}.html#webcast`} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">here</a>.
                                         </p>
                                     )}
                                     {showStreamSuccess && (
@@ -2534,14 +2534,14 @@ function Viewer() {
                                                     <button
                                                         key={evt.id}
                                                         onClick={async () => {
-                                                            setEventUrl(`https://www.robotevents.com/${evt.sku}.html`);
+                                                            setEventUrl(`https://events.vex.com/robot-competitions/vex-robotics-competition/${evt.sku}.html`);
                                                             // Trigger search logic manually or leverage existing effect
                                                             // For direct action:
                                                             setEventLoading(true);
                                                             try {
                                                                 const fullEvent = await getEventBySku(evt.sku);
                                                                 setEvent(fullEvent);
-                                                                setEventUrl(`https://www.robotevents.com/${evt.sku}.html`);
+                                                                setEventUrl(`https://events.vex.com/robot-competitions/vex-robotics-competition/${evt.sku}.html`);
                                                                 await initializeStreamsForEvent(fullEvent);
                                                                 setUrlSku(evt.sku);
                                                                 setIsEventSearchCollapsed(true); // Collapse event search after loading

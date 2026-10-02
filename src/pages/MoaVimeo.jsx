@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getEventBySku, getMatchesForEvent } from '../services/robotevents';
 import VimeoPlayer from '../components/VimeoPlayer';
+import { getAdminToken, saveRoutes } from '../adminAuth';
 import {
     eventLocalDate, fetchCurrentVimeoClip, fetchVimeoClipHash, formatTimestamp, matchTime,
     parseTimestamp, resolveVimeoStreamStart, vimeoWatchUrl,
@@ -125,7 +126,7 @@ function MoaVimeo() {
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
 
-    const authed = typeof window !== 'undefined' && sessionStorage.getItem('adminAuth') === 'true';
+    const authed = typeof window !== 'undefined' && !!getAdminToken();
 
     const updateDay = (date, patch) =>
         setDays((prev) => prev.map((day) => (day.date === date ? { ...day, ...patch } : day)));
@@ -325,12 +326,9 @@ function MoaVimeo() {
                 });
             }
 
-            const res = await fetch('/api/save-routes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(list),
-            });
+            const res = await saveRoutes(list);
 
+            if (res.status === 401) throw new Error('your login was not accepted — log in again on /admin');
             if (!res.ok) throw new Error((await res.text()) || res.statusText);
 
             setRoutes(list);

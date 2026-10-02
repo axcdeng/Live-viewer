@@ -102,6 +102,7 @@ export const findWebcastCandidates = async (event) => {
             const classified = classifyUrl(url);
             // Skip obvious non-stream URLs
             if (!url.toLowerCase().includes('robotevents.com') &&
+                !url.toLowerCase().includes('events.vex.com') &&
                 !url.toLowerCase().includes('vexrobotics.com')) {
                 candidates.push({
                     ...classified,
