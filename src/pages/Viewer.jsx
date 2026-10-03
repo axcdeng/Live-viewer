@@ -28,6 +28,7 @@ import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutRea
 import { configuredVimeoDays, resolveVimeoStreamStart } from '../services/vimeo';
 import VimeoPlayer from '../components/VimeoPlayer';
 import { parseCalendarDate } from '../utils/dateUtils';
+import { YouTubeLanding } from '../utils/youtubeLanding';
 import { Analytics } from "@vercel/analytics/react";
 
 // Helper to auto-detect streams or fallback to defaults
@@ -527,6 +528,10 @@ function Viewer() {
     }, [event, urlTeam, teamNumber, team, isDeepLinking]);
 
     const hasJumpedToMatch = useRef(false);
+    // One per stream: a live broadcast does not reliably play from where it was
+    // seeked before it started. See YouTubeLanding.
+    const landings = useRef({});
+    const landingFor = (streamId) => (landings.current[streamId] ??= new YouTubeLanding());
 
     // Sync URL params when selected match changes
     useEffect(() => {
@@ -753,6 +758,7 @@ function Viewer() {
     const handleSeek = (seconds) => {
         const player = players[activeStreamId];
         if (player && typeof player.getCurrentTime === 'function') {
+            landingFor(activeStreamId).release();
             const currentTime = player.getCurrentTime();
             player.seekTo(currentTime + seconds, true);
         }
@@ -1364,6 +1370,7 @@ function Viewer() {
 
         try {
             if (typeof player.seekTo === 'function') {
+                landingFor(matchStream.id).aim(seekTimeSec);
                 player.seekTo(seekTimeSec, true);
                 player.playVideo();
             } else {
@@ -1551,6 +1558,9 @@ function Viewer() {
                                                     }}
                                                     onReady={(event) => {
                                                         setPlayers(prev => ({ ...prev, [stream.id]: event.target }));
+                                                    }}
+                                                    onStateChange={(event) => {
+                                                        landingFor(stream.id).onStateChange(event.target, event.data);
                                                     }}
                                                     className="w-full h-full"
                                                 />
