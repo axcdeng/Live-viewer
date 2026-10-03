@@ -3,6 +3,7 @@ import { Settings, Play, RefreshCw, Loader, History, AlertCircle, Tv, Zap, Chevr
 import YouTube from 'react-youtube';
 import { format } from 'date-fns';
 import { useQueryState } from 'nuqs';
+import { useLocation, useNavigate } from 'react-router-dom';
 import SettingsModal from '../components/SettingsModal';
 import WebcastSelector from '../components/WebcastSelector';
 import EventHistory from '../components/EventHistory';
@@ -24,9 +25,27 @@ import {
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
 import { findWebcastCandidates } from '../services/webcastDetection';
 import { getCachedWebcast, setCachedWebcast, saveEventToHistory } from '../services/eventCache';
-import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutReason, inferMatchDayFromContext, hasStreamVideo } from '../utils/streamMatching';
+import { calculateEventDays, getMatchDayIndex, findStreamForMatch, findUnsyncedStreamForMatch, getGrayOutReason, inferMatchDayFromContext, hasStreamVideo } from '../utils/streamMatching';
 import { configuredVimeoDays, resolveVimeoStreamStart } from '../services/vimeo';
 import VimeoPlayer from '../components/VimeoPlayer';
+import {
+    SyncCalibrationStrip,
+    HoverInfoCard,
+    formatOffsetInputValue,
+    parseOffsetInputValue,
+    formatOffsetSummary,
+} from '../components/SyncCalibrationStrip';
+import { SYNC_SCOPE_DAY, SYNC_SCOPE_DIVISION } from '../services/worldsSyncOffsets';
+import {
+    getEventSyncScope,
+    setEventSyncScope,
+    getEventSyncOffset,
+    setEventSyncOffset,
+    getEventSyncManual,
+    setEventSyncManual,
+    getPinnedStreamStart,
+    setPinnedStreamStart,
+} from '../services/eventSyncOffsets';
 import { parseCalendarDate } from '../utils/dateUtils';
 import { Analytics } from "@vercel/analytics/react";
 
@@ -126,6 +145,8 @@ function buildVimeoStreams(preset, divisions, eventStart) {
 }
 
 function Viewer() {
+    const location = useLocation();
+    const navigate = useNavigate();
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [showEventHistory, setShowEventHistory] = useState(false);
     const [webcastCandidates, setWebcastCandidates] = useState([]);
@@ -199,8 +220,18 @@ function Viewer() {
     const [error, setError] = useState(null);
 
     // Sync state
+    // MANUAL mode layers a saved offset (see eventSyncOffsets) on top of each
+    // stream's detected start; AUTO jumps from the detected start alone.
     const [syncMode, setSyncMode] = useState(false);
-    const [manualSyncConfirmed, setManualSyncConfirmed] = useState(false);
+    // The last match jumped to (or picked for an undetected stream) — what
+    // "Use Current Frame" calibrates against.
+    const [lastJump, setLastJump] = useState(null);
+    const [syncScope, setSyncScope] = useState(SYNC_SCOPE_DAY);
+    const [activeOffsetSeconds, setActiveOffsetSeconds] = useState(0);
+    const [offsetInput, setOffsetInput] = useState('00:00');
+    const [offsetDirection, setOffsetDirection] = useState('later');
+    const [offsetInputInvalid, setOffsetInputInvalid] = useState(false);
+    const [isSyncCardOpen, setIsSyncCardOpen] = useState(true);
     const [selectedMatchId, setSelectedMatchId] = useState(null);
 
     // Matches Tab State
@@ -615,6 +646,131 @@ function Viewer() {
         return streams.find(s => s.id === activeStreamId) || streams[0] || null;
     };
 
+    // Manual sync: offsets are saved per event division, either shared by all
+    // its days or per day's recording.
+    const syncTargetFor = (stream) => {
+        if (!stream || !event?.sku) return null;
+        return {
+            sku: event.sku,
+            divisionId: stream.divisionId ?? 'all',
+            dayIndex: stream.dayIndex,
+            videoKey: stream.provider === 'vimeo' ? stream.vimeoVideoId : stream.videoId,
+        };
+    };
+
+    const getStreamOffsetSeconds = (stream, manual = syncMode) => (
+        manual ? getEventSyncOffset(syncTargetFor(stream)) : 0
+    );
+
+    const changeSyncMode = (manual) => {
+        setSyncMode(manual);
+        setEventSyncManual(event?.sku, manual);
+    };
+
+    // Reopen each event in the mode it was left in, so saved offsets apply.
+    useEffect(() => {
+        setSyncMode(getEventSyncManual(event?.sku));
+    }, [event?.sku]);
+
+    // Restore starts pinned by hand for streams detection couldn't place.
+    useEffect(() => {
+        if (!event?.sku) return;
+        setStreams(prev => {
+            let changed = false;
+            const next = prev.map(stream => {
+                if (stream.streamStartTime) return stream;
+                const pinned = getPinnedStreamStart(syncTargetFor(stream));
+                if (!pinned) return stream;
+                changed = true;
+                return { ...stream, streamStartTime: pinned };
+            });
+            return changed ? next : prev;
+        });
+    }, [streams, event?.sku]);
+
+    const activeSyncTarget = syncTargetFor(getActiveStream());
+    const isSingleDayEvent = !!event && calculateEventDays(event.start, event.end) === 1;
+    const activeSyncKey = activeSyncTarget ? JSON.stringify(activeSyncTarget) : '';
+
+    useEffect(() => {
+        const target = activeSyncKey ? JSON.parse(activeSyncKey) : null;
+        setSyncScope(target ? getEventSyncScope(target) : SYNC_SCOPE_DAY);
+        setActiveOffsetSeconds(target ? getEventSyncOffset(target) : 0);
+    }, [activeSyncKey]);
+
+    useEffect(() => {
+        setOffsetDirection(activeOffsetSeconds >= 0 ? 'later' : 'earlier');
+        setOffsetInput(formatOffsetInputValue(Math.abs(activeOffsetSeconds)));
+        setOffsetInputInvalid(false);
+    }, [activeOffsetSeconds]);
+
+    const persistActiveOffset = (offsetSeconds, source) => {
+        if (!activeSyncTarget) return;
+        setActiveOffsetSeconds(setEventSyncOffset(activeSyncTarget, offsetSeconds, source));
+        setOffsetInputInvalid(false);
+    };
+
+    const commitActiveOffsetInput = () => {
+        const parsedSeconds = parseOffsetInputValue(offsetInput);
+        if (parsedSeconds === null) {
+            setOffsetInputInvalid(true);
+            return;
+        }
+        persistActiveOffset(offsetDirection === 'later' ? parsedSeconds : -parsedSeconds, 'manual');
+    };
+
+    const handleOffsetDirectionChange = (nextDirection) => {
+        setOffsetDirection(nextDirection);
+        const parsedSeconds = parseOffsetInputValue(offsetInput);
+        if (parsedSeconds === null) {
+            setOffsetInputInvalid(offsetInput.trim().length > 0);
+            return;
+        }
+        persistActiveOffset(nextDirection === 'later' ? parsedSeconds : -parsedSeconds, 'manual');
+    };
+
+    const handleSyncScopeChange = (scope) => {
+        if (!activeSyncTarget || scope === syncScope) return;
+        setEventSyncScope(activeSyncTarget, scope);
+        setSyncScope(scope);
+        setActiveOffsetSeconds(getEventSyncOffset(activeSyncTarget));
+        setOffsetInputInvalid(false);
+    };
+
+    const canCalibrateCurrentFrame = !!(
+        syncMode &&
+        lastJump &&
+        getActiveStream()?.id === lastJump.streamId &&
+        players[lastJump.streamId]
+    );
+
+    const handleUseCurrentFrame = () => {
+        if (!canCalibrateCurrentFrame) return;
+        const player = players[lastJump.streamId];
+        if (typeof player.getCurrentTime !== 'function') return;
+        const currentTime = player.getCurrentTime();
+        if (!Number.isFinite(currentTime)) return;
+
+        if (lastJump.baseJumpSeconds === null) {
+            // No detected start to correct: pin the stream to this frame. The
+            // offset is folded in so the next jump lands exactly here.
+            const offsetSeconds = getStreamOffsetSeconds(getActiveStream());
+            const streamStartTime = lastJump.matchStartMs - (currentTime + offsetSeconds) * 1000;
+            setStreams(prev => prev.map(s => (s.id === lastJump.streamId ? { ...s, streamStartTime } : s)));
+            setPinnedStreamStart(activeSyncTarget, streamStartTime);
+            setLastJump({ ...lastJump, baseJumpSeconds: currentTime + offsetSeconds });
+            return;
+        }
+
+        persistActiveOffset(Math.round(lastJump.baseJumpSeconds - currentTime), 'calibrated');
+    };
+
+    const calibrationLabel = canCalibrateCurrentFrame
+        ? lastJump.matchLabel
+        : lastJump
+            ? 'Jump back to that stream to calibrate'
+            : 'Jump to a match first';
+
     // Helper: Calculate event duration and initialize streams
     const initializeStreamsForEvent = async (eventData) => {
         setNoWebcastsFound(false);
@@ -757,13 +913,6 @@ function Viewer() {
             player.seekTo(currentTime + seconds, true);
         }
     };
-
-    // Reset manual sync confirmation when switching streams
-    useEffect(() => {
-        if (syncMode && activeStreamId) {
-            setManualSyncConfirmed(false);
-        }
-    }, [activeStreamId, syncMode]);
 
     // Keyboard Shortcuts
     useEffect(() => {
@@ -916,6 +1065,15 @@ function Viewer() {
         // Reset internal loading flag after a brief delay
         setTimeout(() => { isInternalLoading.current = false; }, 1000);
     };
+
+    // Another page (Worlds) can hand over a history entry to open here.
+    useEffect(() => {
+        const historyEntry = location.state?.historyEntry;
+        if (!historyEntry) return;
+        // Drop it from router state first, so a reload doesn't load it twice.
+        navigate(location.pathname, { replace: true, state: null });
+        handleLoadFromHistory(historyEntry);
+    }, []);
 
     const handleLoadPreset = async (preset, options = {}) => {
         const { preserveDeepLinkParams = false } = options;
@@ -1266,32 +1424,6 @@ function Viewer() {
         }
     };
 
-    const handleManualSync = (match) => {
-        // Find the appropriate stream for this match
-        const matchStream = findStreamForMatch(match, streams, event?.start);
-
-        if (!matchStream) {
-            alert('No stream available for this match.');
-            return;
-        }
-
-        const player = players[matchStream.id];
-        if (!player) {
-            alert('No player found. Load the stream first.');
-            return;
-        }
-
-        const currentVideoTimeSec = player.getCurrentTime();
-        const matchStartTimeMs = new Date(match.started).getTime();
-        const calculatedStreamStart = matchStartTimeMs - (currentVideoTimeSec * 1000);
-
-        // Update the stream's start time
-        setStreams(prev => prev.map(s =>
-            s.id === matchStream.id ? { ...s, streamStartTime: calculatedStreamStart } : s
-        ));
-        setSyncMode(false);
-    };
-
     // Re-derive each Vimeo day's stream start from the live match list once one
     // is available. The anchor match's start time is copied into the preset when
     // the admin saves it, and RobotEvents sometimes revises a `started`
@@ -1316,9 +1448,11 @@ function Viewer() {
         });
     }, [allMatches, matches]);
 
-    const jumpToMatch = async (match) => {
-        // Find the appropriate stream for this match
-        const matchStream = findStreamForMatch(match, streams, event?.start);
+    const jumpToMatch = async (match, { manual = syncMode } = {}) => {
+        // Find the appropriate stream for this match. In MANUAL, a stream whose
+        // start couldn't be detected still counts: this match can pin it.
+        const matchStream = findStreamForMatch(match, streams, event?.start)
+            ?? (manual ? findUnsyncedStreamForMatch(match, streams, event?.start) : null);
 
         if (!matchStream) {
             alert('No stream available for this match.');
@@ -1349,18 +1483,29 @@ function Viewer() {
             return;
         }
 
+        const matchStartMs = new Date(match.started).getTime();
+        const matchLabel = match.name?.replace(/teamwork/gi, 'Qual') || match.name;
+
         if (!matchStream.streamStartTime) {
-            alert('Please sync this stream first!');
+            if (manual) {
+                // Nothing to seek to yet; the user scrubs to this match and
+                // pins the stream with "Use Current Frame".
+                setLastJump({ streamId: matchStream.id, matchLabel, matchStartMs, baseJumpSeconds: null });
+                setSelectedMatchId(match.id);
+                return;
+            }
+            alert('Please sync this stream first! Switch Sync Mode to MANUAL to set it from the video.');
             return;
         }
 
-        const matchStartMs = new Date(match.started).getTime();
-        const seekTimeSec = (matchStartMs - matchStream.streamStartTime) / 1000;
+        const baseJumpSeconds = (matchStartMs - matchStream.streamStartTime) / 1000;
 
-        if (seekTimeSec < 0) {
+        if (baseJumpSeconds < 0) {
             alert("This match happened before the stream started!");
             return;
         }
+
+        const seekTimeSec = Math.max(0, baseJumpSeconds - getStreamOffsetSeconds(matchStream, manual));
 
         try {
             if (typeof player.seekTo === 'function') {
@@ -1375,6 +1520,7 @@ function Viewer() {
             // We can treat this as a non-fatal error for now.
         }
         setSelectedMatchId(match.id);
+        setLastJump({ streamId: matchStream.id, matchLabel, matchStartMs, baseJumpSeconds });
     };
 
     const handleClearAll = () => {
@@ -1399,6 +1545,7 @@ function Viewer() {
         setEventUrl('');
         setTeamNumber('');
         setSelectedMatchId(null);
+        setLastJump(null);
         setExpandedMatchId(null);
         setError(null);
         setIsEventSearchCollapsed(false);
@@ -1800,105 +1947,74 @@ function Viewer() {
 
                         {/* Sync Control Bar */}
                         {event && streams.length > 0 && (
-                            <div className="bg-black/30 border-y border-gray-800 py-1.5 px-3 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sync Mode</span>
-                                    <div className="flex bg-gray-900 rounded-lg p-0.5">
-                                        <button
-                                            onClick={() => setSyncMode(false)}
-                                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${!syncMode
-                                                ? 'bg-gray-700 text-white shadow-sm'
-                                                : 'text-gray-500 hover:text-gray-300'
-                                                }`}
-                                        >
-                                            AUTO
-                                        </button>
-                                        <button
-                                            disabled
-                                            title="Coming Soon"
-                                            className="px-2 py-0.5 text-[10px] font-bold rounded-md transition-all text-gray-600 opacity-50 cursor-not-allowed"
-                                        >
-                                            MANUAL
-                                        </button>
+                            <>
+                                <div className="bg-black/30 border-y border-gray-800 py-1.5 px-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Sync Mode</span>
+                                        <div className="flex bg-gray-900 rounded-lg p-0.5">
+                                            {[['AUTO', false], ['MANUAL', true]].map(([label, manual]) => (
+                                                <button
+                                                    key={label}
+                                                    onClick={() => changeSyncMode(manual)}
+                                                    className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all ${syncMode === manual
+                                                        ? 'bg-gray-700 text-white shadow-sm'
+                                                        : 'text-gray-500 hover:text-gray-300'
+                                                        }`}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
 
+                                {/* Sync calibration (same controls as the Worlds page) */}
                                 {syncMode && (
-                                    (() => {
-                                        // Find first match dynamically for the button label
-                                        const getFirstMatch = () => {
-                                            const activeStream = getActiveStream();
-                                            if (!activeStream) return null;
-                                            const targetDivId = activeStream.divisionId;
-                                            const targetDayIndex = activeStream.dayIndex;
+                                    <div className="bg-gray-900 border border-gray-800 rounded-xl flex-shrink-0 overflow-visible">
+                                        <button
+                                            onClick={() => setIsSyncCardOpen((open) => !open)}
+                                            className="w-full px-3 py-1.5 flex items-center justify-between gap-2 hover:bg-gray-800/40 transition-colors"
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0 text-left">
+                                                <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Sync</h2>
+                                                <HoverInfoCard
+                                                    title="How Sync Works"
+                                                    body="If your jumps are always early or late by about the same amount, save that correction here. For best results: jump to a match, scrub to the real start, then press Use Current Frame once."
+                                                />
+                                                <span className="text-[11px] text-gray-500 truncate">
+                                                    {activeSyncTarget ? formatOffsetSummary(activeOffsetSeconds) : 'Load a stream first'}
+                                                    {activeSyncTarget && !isSingleDayEvent ? ` • ${syncScope === SYNC_SCOPE_DIVISION ? 'All Days' : `Day ${(activeSyncTarget.dayIndex ?? 0) + 1}`}` : ''}
+                                                    {/* One-day card has no status row, so it rides in the header */}
+                                                    {activeSyncTarget && isSingleDayEvent ? ` • ${canCalibrateCurrentFrame ? `Ready: ${calibrationLabel}` : calibrationLabel}` : ''}
+                                                </span>
+                                            </div>
+                                            <ChevronDown className={`w-3.5 h-3.5 text-gray-500 transition-transform shrink-0 ${isSyncCardOpen ? 'rotate-180' : ''}`} />
+                                        </button>
 
-                                            // Use allMatches (entire event) instead of matches (filtered by selected team)
-                                            let relevantMatches = allMatches.length > 0 ? allMatches : matches;
-                                            if (targetDivId && event.divisions && event.divisions.length > 1) {
-                                                relevantMatches = relevantMatches.filter(m => m.division.id === targetDivId);
-                                            }
-
-                                            if (relevantMatches.length === 0) return null;
-
-                                            const eventStart = new Date(event.start);
-                                            const streamDate = new Date(eventStart);
-                                            streamDate.setDate(eventStart.getDate() + targetDayIndex);
-                                            const streamDateStr = streamDate.toISOString().split('T')[0];
-
-                                            return relevantMatches
-                                                .filter(m => m.started && m.started.startsWith(streamDateStr))
-                                                .sort((a, b) => new Date(a.started) - new Date(b.started))[0];
-                                        };
-
-                                        const firstMatch = getFirstMatch();
-
-                                        const handleManualSync = () => {
-                                            const activeStream = getActiveStream();
-                                            const firstMatch = getFirstMatch();
-
-                                            if (activeStream && firstMatch) {
-                                                const player = players[activeStream.id];
-                                                if (player && typeof player.getCurrentTime === 'function') {
-                                                    const currentVidTime = player.getCurrentTime();
-                                                    const matchStartTimeMs = new Date(firstMatch.started).getTime();
-                                                    const calculatedStartTime = matchStartTimeMs - (currentVidTime * 1000);
-
-                                                    console.log("Manual Sync:", {
-                                                        firstMatch: firstMatch.name,
-                                                        matchStart: firstMatch.started,
-                                                        vidTime: currentVidTime,
-                                                        calcStart: new Date(calculatedStartTime).toISOString()
-                                                    });
-
-                                                    const updatedStreams = streams.map(s => {
-                                                        if (s.id === activeStream.id) {
-                                                            return { ...s, streamStartTime: calculatedStartTime };
-                                                        }
-                                                        return s;
-                                                    });
-                                                    setStreams(updatedStreams);
-                                                    setManualSyncConfirmed(true); // Enable jumping
-                                                    alert(`Synced to ${firstMatch.name}! All matches are now aligned.`);
-                                                } else {
-                                                    alert("Video player not ready.");
-                                                }
-                                            } else {
-                                                alert("Could not find a match to sync with.");
-                                            }
-                                        };
-
-                                        return (
-                                            <button
-                                                onClick={handleManualSync}
-                                                disabled={!firstMatch}
-                                                className="text-[10px] font-bold bg-[#4FCEEC] hover:bg-[#3db8d6] disabled:opacity-50 disabled:cursor-not-allowed text-black px-2 py-1 rounded transition-colors"
-                                            >
-                                                {firstMatch ? `SYNC TO ${firstMatch.name.toUpperCase()}` : 'NO MATCHES FOUND'}
-                                            </button>
-                                        );
-                                    })()
+                                        {isSyncCardOpen && (
+                                            <div className="border-t border-gray-800 px-3 py-3 overflow-visible">
+                                                <SyncCalibrationStrip
+                                                    disabled={!activeSyncTarget}
+                                                    offsetSeconds={activeOffsetSeconds}
+                                                    offsetInput={offsetInput}
+                                                    offsetDirection={offsetDirection}
+                                                    offsetInputInvalid={offsetInputInvalid}
+                                                    onOffsetInputChange={setOffsetInput}
+                                                    onOffsetInputCommit={commitActiveOffsetInput}
+                                                    onOffsetDirectionChange={handleOffsetDirectionChange}
+                                                    onOffsetReset={() => persistActiveOffset(0, 'manual')}
+                                                    canCalibrate={canCalibrateCurrentFrame}
+                                                    calibrationLabel={calibrationLabel}
+                                                    onUseCurrentFrame={handleUseCurrentFrame}
+                                                    scope={syncScope}
+                                                    onScopeChange={handleSyncScopeChange}
+                                                    showScope={!isSingleDayEvent}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
-                            </div>
+                            </>
                         )}
                         <div className="flex gap-1 bg-gray-900/50 p-1 rounded-lg flex-shrink-0">
                             {/* Only show 'Find Team' tab if event is loaded OR it's been explicitly selected (though deprecated in no-event mode) */}
@@ -1990,9 +2106,7 @@ function Viewer() {
                                                     <div className="flex items-center gap-3">
                                                         <div className="flex items-center gap-2 text-[10px]">
                                                             {(() => {
-                                                                const syncedStreams = streams.filter(s => s.streamStartTime);
-                                                                // If manual mode but not confirmed, treat as NOT synced
-                                                                const isSynced = (syncMode && !manualSyncConfirmed) ? false : syncedStreams.length > 0;
+                                                                const isSynced = streams.some(s => s.streamStartTime);
                                                                 return (
                                                                     <>
                                                                         <div className={`w-1.5 h-1.5 rounded-full ${isSynced ? 'bg-[#4FCEEC] shadow-[0_0_8px_rgba(79,206,236,0.6)]' : 'bg-red-500'}`} />
@@ -2114,10 +2228,10 @@ function Viewer() {
                                                                                     ) : (
                                                                                         <button
                                                                                             onClick={() => {
-                                                                                                setSelectedMatchId(match.id);
-                                                                                                setSyncMode(true);
+                                                                                                changeSyncMode(true);
+                                                                                                jumpToMatch(match, { manual: true });
                                                                                             }}
-                                                                                            disabled={!hasStarted || isGrayedOut}
+                                                                                            disabled={!hasStarted || !findUnsyncedStreamForMatch(match, streams, event?.start)}
                                                                                             className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-white p-2 rounded-lg flex-shrink-0 transition-colors"
                                                                                             title="Sync match"
                                                                                         >
@@ -2357,6 +2471,9 @@ function Viewer() {
                                                                         {dayMatches.map((match) => {
                                                                             const matchName = match.name?.replace(/teamwork/gi, 'Qual') || match.name;
                                                                             const grayOutReason = getGrayOutReason(match, streams, event?.start);
+                                                                            // In MANUAL, a match on a stream with no detected start can
+                                                                            // still be picked to pin that stream.
+                                                                            const canPickToSync = syncMode && !!grayOutReason && !!findUnsyncedStreamForMatch(match, streams, event?.start);
 
                                                                             // Helper to check if a specific team is in this match (for highlighting)
                                                                             const isSearchedTeam = (t) => {
@@ -2386,12 +2503,12 @@ function Viewer() {
                                                                                         <div className="flex gap-1">
                                                                                             <button
                                                                                                 onClick={() => jumpToMatch(match)}
-                                                                                                disabled={!!grayOutReason}
-                                                                                                className={`p-1.5 rounded-md transition-colors ${grayOutReason
+                                                                                                disabled={!!grayOutReason && !canPickToSync}
+                                                                                                className={`p-1.5 rounded-md transition-colors ${grayOutReason && !canPickToSync
                                                                                                     ? 'text-gray-600 cursor-not-allowed'
                                                                                                     : 'bg-[#4FCEEC]/10 text-[#4FCEEC] hover:bg-[#4FCEEC]/20'
                                                                                                     }`}
-                                                                                                title={grayOutReason || "Jump to match"}
+                                                                                                title={canPickToSync ? "Pick this match to sync: scrub to its start, then Use Current Frame" : (grayOutReason || "Jump to match")}
                                                                                             >
                                                                                                 <Play className="w-3 h-3 fill-current" />
                                                                                             </button>
@@ -2583,32 +2700,6 @@ function Viewer() {
                     </div>
                 </div>
 
-                {/* Sync Modal */}
-                {syncMode && selectedMatchId && (
-                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-8">
-                        <div className="bg-gray-900 border-2 border-[#4FCEEC] p-8 rounded-2xl max-w-md text-center shadow-2xl shadow-[#4FCEEC]/20">
-                            <h3 className="text-2xl font-bold text-[#4FCEEC] mb-4">Manual Sync</h3>
-                            <p className="text-gray-300 mb-6">
-                                Find the exact moment <strong className="text-white">{matches.find(m => m.id === selectedMatchId)?.name}</strong> starts in the video, then click SYNC NOW.
-                            </p>
-                            <div className="flex gap-3 justify-center">
-                                <button
-                                    onClick={() => handleManualSync(matches.find(m => m.id === selectedMatchId))}
-                                    className="bg-[#4FCEEC] hover:bg-[#3db8d6] text-black px-8 py-3 rounded-lg font-bold transition-colors"
-                                >
-                                    SYNC NOW
-                                </button>
-                                <button
-                                    onClick={() => setSyncMode(false)}
-                                    className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
                 {/* Settings Modal */}
                 <SettingsModal
                     isOpen={isSettingsOpen}
@@ -2652,3 +2743,4 @@ function Viewer() {
 }
 
 export default Viewer;
+

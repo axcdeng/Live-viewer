@@ -188,6 +188,28 @@ export const findStreamForMatch = (match, streams, eventStartDate) => {
 };
 
 /**
+ * Find the stream a manual sync would pin for a match: one with a video but no
+ * start time yet (detection failed), for the match's division and day.
+ * findStreamForMatch only considers streams that already have a start time.
+ * @returns {Object|null} Stream object or null
+ */
+export const findUnsyncedStreamForMatch = (match, streams, eventStartDate) => {
+    if (!match?.started || !streams) return null;
+
+    const matchDay = getMatchDayIndex(match.started, eventStartDate);
+    const matchDivisionId = match.division?.id;
+
+    const unsynced = streams.filter(stream => hasStreamVideo(stream) && !stream.streamStartTime);
+    const sameDivision = unsynced.filter(stream =>
+        !matchDivisionId || !stream.divisionId || stream.divisionId === matchDivisionId
+    );
+
+    return sameDivision.find(stream =>
+        stream.dayIndex === null || stream.dayIndex === undefined || stream.dayIndex === matchDay
+    ) || null;
+};
+
+/**
  * Get the reason why a match is unavailable (grayed out)
  * @param {Object} match - Match object
  * @param {Array} streams - Array of stream objects

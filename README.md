@@ -6,17 +6,17 @@
 
 > A web app by RoboSTEM Foundation for watching VEX competition livestreams without scrubbing through hours of footage.
 
-VEX Match Jumper lets you load any VEX Robotics Competition event from RobotEvents and jump directly to individual matches inside the official YouTube livestream. It is designed for post-event match review, team scouting, and finding specific games after competition day.
+VEX Match Jumper lets you load any VEX Robotics Competition event from VEX Events and jump directly to individual matches inside the official YouTube livestream. It is designed for post-event match review, team scouting, and finding specific games after competition day.
 
 ---
 
 ## Features
 
-- **Load by URL or SKU** — Paste a RobotEvents event URL or type a SKU directly (e.g. `RE-VRC-24-1234`)
+- **Load by URL or SKU** — Paste a VEX Events event URL or type a SKU directly (e.g. `VE-V5-26-1234`)
 - **Direct match seeking** — Click any match in the list to instantly seek the YouTube player to that moment
 - **Multi-day support** — Events spanning multiple days automatically get a stream slot per day
 - **Multi-division support** — Events with multiple divisions (e.g. High School / Middle School) track separate streams per division
-- **Auto stream detection** — The server scrapes the RobotEvents event page and queries YouTube to find the correct livestream automatically
+- **Auto stream detection** — The server scrapes the VEX Events event page and queries YouTube to find the correct livestream automatically
 - **Manual sync tools** — Fine-tune the stream-to-match alignment with ±5s, ±30s, ±5m offset buttons and a manual sync mode
 - **Team filtering** — Filter the match list to show only matches played by a specific team number
 - **Team search without an event** — Look up a team by number to see their full event schedule across the current season
@@ -24,7 +24,7 @@ VEX Match Jumper lets you load any VEX Robotics Competition event from RobotEven
 - **Event history** — Previously loaded events are stored locally and can be reloaded in one click
 - **Shareable deep links** — URLs encode the selected event, team, stream(s), and match so a session can be shared or bookmarked
 - **Short links** — Admin-created preset paths (e.g. `jumper.robostem.org/worlds`) expand to full event configurations
-- **RobotEvents integration** — Pulls live match schedules, team lists, rankings, and skills results from the RobotEvents API v2
+- **VEX Events integration** — Pulls live match schedules, team lists, rankings, and skills results from the VEX Events API v2
 
 ---
 
@@ -32,10 +32,10 @@ VEX Match Jumper lets you load any VEX Robotics Competition event from RobotEven
 
 ### Event Loading
 
-1. The user enters a RobotEvents event URL or SKU.
-2. The app calls the RobotEvents API v2 to fetch event metadata (name, dates, divisions, teams).
+1. The user enters a VEX Events event URL or SKU.
+2. The app calls the VEX Events API v2 to fetch event metadata (name, dates, divisions, teams).
 3. All matches across every division are fetched and sorted by start time.
-4. Stream detection runs against `/api/detect-streams`, which scrapes the RobotEvents event page and searches YouTube for matching channel uploads.
+4. Stream detection runs against `/api/detect-streams`, which scrapes the VEX Events event page and searches YouTube for matching channel uploads.
 5. Detected streams are assigned to division/day slots. If detection fails, blank stream slots are generated as placeholders.
 
 ### Match Seeking
@@ -64,7 +64,7 @@ All state is encoded in the URL using [nuqs](https://nuqs.47ng.com/), making ses
 
 | Parameter | Description |
 |-----------|-------------|
-| `sku` | RobotEvents event SKU |
+| `sku` | VEX Events event SKU |
 | `team` | Team number filter |
 | `match` | Selected match ID |
 | `vid1`, `vid2`, `vid3` | YouTube video IDs for multi-day streams |
@@ -98,7 +98,7 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
 
 | Function | Runtime | Purpose |
 |----------|---------|---------|
-| `api/detect-streams.js` | Node.js | Scrapes RobotEvents and queries YouTube to detect livestream URLs; caches results in Vercel KV |
+| `api/detect-streams.js` | Node.js | Scrapes VEX Events and queries YouTube to detect livestream URLs; caches results in Vercel KV |
 | `api/get-all-routes.js` | Edge | Reads the short link route table from Vercel Edge Config |
 | `api/save-routes.js` | Node.js | Writes the short link route table to Vercel Edge Config (admin only) |
 | `api/sitemap.xml.js` | Edge | Generates a dynamic XML sitemap from stored routes |
@@ -115,7 +115,7 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
 
 | API | Usage |
 |-----|-------|
-| [RobotEvents API v2](https://www.robotevents.com/api/v2/docs) | Event metadata, matches, teams, rankings, skills |
+| [VEX Events API v2](https://events.vex.com/api/v2) | Event metadata, matches, teams, rankings, skills |
 | [YouTube Data API v3](https://developers.google.com/youtube/v3) | Video `liveStreamingDetails`, channel search, playlist items |
 
 ---
@@ -125,7 +125,7 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
 ### Prerequisites
 
 - Node.js 18+
-- A RobotEvents API key ([get one here](https://www.robotevents.com/api/v2/))
+- A VEX Events API key ([get one here](https://events.vex.com/api/v2/))
 - A YouTube Data API v3 key ([Google Cloud Console](https://console.cloud.google.com/))
 - Vercel CLI (`npm i -g vercel`) for running serverless functions locally
 
@@ -149,7 +149,7 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
    Create a `.env.local` file:
 
    ```env
-   VITE_DEFAULT_ROBOTEVENTS_API_KEY=your_robotevents_key
+   VITE_DEFAULT_ROBOTEVENTS_API_KEY=your_vex_events_key
    VITE_DEFAULT_YOUTUBE_API_KEY=your_youtube_key
    ```
 
@@ -212,7 +212,7 @@ Output goes to `dist/`.
 │   │   └── RouteResolver.jsx   # Short link redirect handler
 │   │
 │   ├── services/
-│   │   ├── robotevents.js      # RobotEvents API v2 client
+│   │   ├── robotevents.js      # RobotEvents (VEX Events) API v2 client
 │   │   ├── youtube.js          # YouTube video details + stream start time
 │   │   ├── youtubeAdvanced.js  # Channel/playlist queries
 │   │   ├── webcastDetection.js # URL classifier and event webcast finder
