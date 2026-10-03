@@ -87,21 +87,23 @@ function StreamManager({
 
         if (!stream1 || !stream2) return;
 
-        // Swap URLs, videoIds, and streamStartTimes
+        // Swap URLs, videoIds, and stream start and end times
         const updatedStreams = streams.map(s => {
             if (s.id === streamId1) {
                 return {
                     ...s,
                     url: stream2.url,
                     videoId: stream2.videoId,
-                    streamStartTime: stream2.streamStartTime
+                    streamStartTime: stream2.streamStartTime,
+                    streamEndTime: stream2.streamEndTime
                 };
             } else if (s.id === streamId2) {
                 return {
                     ...s,
                     url: stream1.url,
                     videoId: stream1.videoId,
-                    streamStartTime: stream1.streamStartTime
+                    streamStartTime: stream1.streamStartTime,
+                    streamEndTime: stream1.streamEndTime
                 };
             }
             return s;
@@ -134,7 +136,9 @@ function StreamManager({
                         const result = await getStreamStartTime(stream.videoId);
                         if (result && result.status === 'started' && result.startTime) {
                             updateStream(stream.id, {
-                                streamStartTime: new Date(result.startTime).getTime()
+                                streamStartTime: new Date(result.startTime).getTime(),
+                                // Null while the stream is still live
+                                streamEndTime: result.endTime ? new Date(result.endTime).getTime() : null
                             });
                             setErrors(prev => ({ ...prev, [stream.id]: null }));
                         } else if (result && result.status === 'scheduled') {
@@ -180,9 +184,9 @@ function StreamManager({
 
         // Update all properties at once to avoid race conditions
         if (videoId) {
-            updateStream(streamId, { url, videoId, streamStartTime: null });
+            updateStream(streamId, { url, videoId, streamStartTime: null, streamEndTime: null });
         } else if (!url) {
-            updateStream(streamId, { url: '', videoId: null, streamStartTime: null });
+            updateStream(streamId, { url: '', videoId: null, streamStartTime: null, streamEndTime: null });
         } else {
             // URL is present but invalid video ID
             updateStream(streamId, { url });

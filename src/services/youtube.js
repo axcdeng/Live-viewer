@@ -31,6 +31,7 @@ export const getStreamStartTime = async (videoId) => {
             if (details.actualStartTime) {
                 return {
                     startTime: details.actualStartTime,
+                    endTime: details.actualEndTime || null,
                     status: 'started',
                     scheduledTime: details.scheduledStartTime || null
                 };

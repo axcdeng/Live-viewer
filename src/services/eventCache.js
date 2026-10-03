@@ -96,6 +96,7 @@ export const saveEventToHistory = (event, streams) => {
             divisionId: s.divisionId,
             date: s.date,
             streamStartTime: s.streamStartTime,
+            streamEndTime: s.streamEndTime,
             // Vimeo streams carry their identity here rather than in a URL, so
             // omitting these restores an empty stream with no way to play.
             provider: s.provider,

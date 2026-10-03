@@ -888,6 +888,7 @@ function Viewer() {
                 url: s.url || '',
                 videoId: s.videoId || null,
                 streamStartTime: s.streamStartTime || null,
+                streamEndTime: s.streamEndTime || null,
                 divisionId: s.divisionId || 1, // Fallback for legacy
                 dayIndex: s.dayIndex,
                 label: s.label,

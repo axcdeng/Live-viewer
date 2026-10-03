@@ -116,6 +116,91 @@ export const inferMatchDayFromContext = (match, allMatches, eventStartDate) => {
 };
 
 /**
+ * The streams a match could play from: those with a known start time, from the
+ * match's own division when it has any.
+ * @param {Object} match - Match object
+ * @param {Array} streams - Array of stream objects
+ * @param {number} matchDay - Calendar day index of the match
+ * @returns {Array} Candidate streams
+ */
+const candidateStreamsForMatch = (match, streams, matchDay) => {
+    // Vimeo streams are pinned to a single broadcast day by an admin-supplied
+    // anchor, so — unlike a pasted YouTube URL, which the fallbacks below are
+    // happy to reuse across days — one must never stand in for another day's
+    // match. Doing so would seek hours past the end of the recording. Drop them
+    // before the fallbacks can reach for them.
+    const eligible = streams.filter(stream =>
+        stream.provider !== 'vimeo' || stream.dayIndex === matchDay
+    );
+
+    // Filter streams that have valid start times
+    const streamsWithStartTime = eligible.filter(stream => stream.streamStartTime);
+
+    // Filter by division if the match has a division ID
+    const matchDivisionId = match.division?.id;
+    if (matchDivisionId) {
+        const divisionStreams = streamsWithStartTime.filter(stream =>
+            stream.divisionId === matchDivisionId || !stream.divisionId
+        );
+        if (divisionStreams.length > 0) return divisionStreams;
+    }
+    return streamsWithStartTime;
+};
+
+/**
+ * The stream that was live when a match started.
+ *
+ * Day slots are calendar days counted from the event's start date, so any date
+ * with no matches shifts every later match onto the wrong stream. The Great
+ * Planes Signature Event 2026 is dated Oct 1–3 with matches on Oct 2 and 3,
+ * and its preset has one stream per match day: the Oct 2 matches went to the
+ * stream that went live on Oct 3, and the Oct 3 matches to an empty third slot.
+ *
+ * Each stream's start time says which matches it covers, so the stream for a
+ * match is the one that most recently went live at or before the match
+ * started, and a match earlier than every stream belongs to the first. That is
+ * how api/match-timestamp.js picks. Here the stream must also not have ended
+ * before the match: a match played the morning before its day's stream went
+ * live (Score 2025's Qualifier #79) would otherwise land a day into the
+ * previous day's video, past its end. A preset whose days line up gets the
+ * same stream it always did.
+ *
+ * @param {Object} match - Match object
+ * @param {Array} streams - Array of stream objects
+ * @param {number} matchDay - Calendar day index of the match
+ * @param {number} matchTimeMs - Match start time (epoch ms)
+ * @returns {Object|null} Stream, or null when the stream times can't settle it
+ *   and the calendar day has to decide
+ */
+const streamLiveAtMatch = (match, streams, matchDay, matchTimeMs) => {
+    // A stream with a video but no start time (still loading, or YouTube has
+    // none, like Speedway 2026's removed day-3 video) may be the one that was
+    // live, and skipping it would seek past the end of the day before's video.
+    const matchDivisionId = match.division?.id;
+    const unknownStart = streams.some(stream =>
+        hasStreamVideo(stream) && !stream.streamStartTime &&
+        (!matchDivisionId || !stream.divisionId || stream.divisionId === matchDivisionId)
+    );
+    if (unknownStart) return null;
+
+    const candidates = candidateStreamsForMatch(match, streams, matchDay);
+    const startTimes = [...new Set(candidates.map(stream => stream.streamStartTime))].sort((a, b) => a - b);
+    if (startTimes.length < 2) return null;
+
+    const wentLive = startTimes.filter(time => time <= matchTimeMs);
+    const startTime = wentLive.length ? wentLive[wentLive.length - 1] : startTimes[0];
+
+    // One video can fill more than one day slot; keep the match's own day then.
+    const live = candidates.filter(stream => stream.streamStartTime === startTime);
+    const picked = live.find(stream => stream.dayIndex === matchDay) || live[0];
+
+    // Nothing was live when the match started.
+    if (wentLive.length && picked.streamEndTime && picked.streamEndTime < matchTimeMs) return null;
+
+    return picked;
+};
+
+/**
  * Find the best stream for a given match
  * @param {Object} match - Match object with started/scheduled time
  * @param {Array} streams - Array of stream objects
@@ -131,34 +216,15 @@ export const findStreamForMatch = (match, streams, eventStartDate) => {
 
     const matchDay = getMatchDayIndex(matchStartTime, eventStartDate);
     const matchTimeMs = new Date(matchStartTime).getTime();
-    const matchDivisionId = match.division?.id;
 
-    // Vimeo streams are pinned to a single broadcast day by an admin-supplied
-    // anchor, so — unlike a pasted YouTube URL, which the fallbacks below are
-    // happy to reuse across days — one must never stand in for another day's
-    // match. Doing so would seek hours past the end of the recording. Drop them
-    // before the fallbacks can reach for them.
-    const eligible = streams.filter(stream =>
-        stream.provider !== 'vimeo' || stream.dayIndex === matchDay
-    );
+    const liveStream = streamLiveAtMatch(match, streams, matchDay, matchTimeMs);
+    if (liveStream) return liveStream;
 
-    // Filter streams that have valid start times
-    const streamsWithStartTime = eligible.filter(stream => stream.streamStartTime);
+    let candidateStreams = candidateStreamsForMatch(match, streams, matchDay);
 
-    if (streamsWithStartTime.length === 0) return null;
+    if (candidateStreams.length === 0) return null;
 
-    // First priority: filter by division if the match has a division ID
-    let candidateStreams = streamsWithStartTime;
-    if (matchDivisionId) {
-        const divisionStreams = streamsWithStartTime.filter(stream =>
-            stream.divisionId === matchDivisionId || !stream.divisionId
-        );
-        if (divisionStreams.length > 0) {
-            candidateStreams = divisionStreams;
-        }
-    }
-
-    // Second priority: prefer streams from the same day
+    // Otherwise prefer streams from the same day
     const sameDayStreams = candidateStreams.filter(stream =>
         stream.dayIndex === null || stream.dayIndex === undefined || stream.dayIndex === matchDay
     );
@@ -210,6 +276,15 @@ export const getGrayOutReason = (match, streams, eventStartDate) => {
     const matchDay = getMatchDayIndex(matchStartTime, eventStartDate);
     const matchTimeMs = new Date(matchStartTime).getTime();
     const matchTimeFormatted = format(new Date(matchStartTime), 'h:mm a');
+
+    // With start times to go by, the match's stream is whichever was live then,
+    // whatever its day slot (see streamLiveAtMatch).
+    const liveStream = streamLiveAtMatch(match, streams, matchDay, matchTimeMs);
+    if (liveStream) {
+        if (liveStream.streamStartTime <= matchTimeMs) return null;
+        const streamStartFormatted = format(new Date(liveStream.streamStartTime), 'h:mm a');
+        return `Stream started at ${streamStartFormatted}, but this match was at ${matchTimeFormatted}.`;
+    }
 
     // Check if there's a stream for this day
     const streamsForDay = streams.filter(s =>
