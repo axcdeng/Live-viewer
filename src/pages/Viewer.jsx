@@ -24,7 +24,7 @@ import {
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
 import { findWebcastCandidates } from '../services/webcastDetection';
 import { getCachedWebcast, setCachedWebcast, saveEventToHistory } from '../services/eventCache';
-import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutReason, inferMatchDayFromContext, hasStreamVideo } from '../utils/streamMatching';
+import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutReason, inferMatchDayFromContext, hasStreamVideo, getStreamLabel, getDayLabel } from '../utils/streamMatching';
 import { configuredVimeoDays, resolveVimeoStreamStart } from '../services/vimeo';
 import VimeoPlayer from '../components/VimeoPlayer';
 import { parseCalendarDate } from '../utils/dateUtils';
@@ -1569,7 +1569,7 @@ function Viewer() {
                                                 <div className="w-full h-full flex items-center justify-center text-slate-600">
                                                     <div className="text-center">
                                                         <Tv className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                                        <p>Enter a stream URL for {stream.label} below</p>
+                                                        <p>Enter a stream URL for {getStreamLabel(stream, event?.start)} below</p>
                                                     </div>
                                                 </div>
                                             )}
@@ -1635,7 +1635,7 @@ function Viewer() {
                                                         : 'bg-black/60 text-white hover:bg-black/80'
                                                         }`}
                                                 >
-                                                    {stream.label}
+                                                    {getStreamLabel(stream, event?.start)}
                                                 </button>
                                             ))}
                                         </div>
@@ -2032,7 +2032,7 @@ function Viewer() {
                                                     return Object.keys(matchesByDay).sort().map((dayIndex) => {
                                                         const dayMatches = matchesByDay[dayIndex];
                                                         const dayStream = streams.find(s => s.dayIndex === parseInt(dayIndex));
-                                                        const dayLabel = dayStream?.label || `Day ${parseInt(dayIndex) + 1}`;
+                                                        const dayLabel = dayStream?.label || getDayLabel(parseInt(dayIndex), event?.start);
 
                                                         return (
                                                             <div key={dayIndex}>
@@ -2353,7 +2353,7 @@ function Viewer() {
                                                         {Object.keys(matchesByDay).sort().map((dayIndex) => {
                                                             const dayMatches = matchesByDay[dayIndex];
                                                             const dayStream = streams.find(s => s.dayIndex === parseInt(dayIndex));
-                                                            const dayLabel = dayStream?.label || `Day ${parseInt(dayIndex) + 1}`;
+                                                            const dayLabel = dayStream?.label || getDayLabel(parseInt(dayIndex), event?.start);
 
                                                             return (
                                                                 <div key={dayIndex}>

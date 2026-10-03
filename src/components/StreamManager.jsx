@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Plus, X, Loader, AlertTriangle, Rewind, FastForward, RotateCcw, RotateCw, Play, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight } from 'lucide-react';
-import { format } from 'date-fns';
+import { Tv, Plus, X, Loader, Rewind, FastForward, RotateCcw, RotateCw, Play, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { extractVideoId, getStreamStartTime } from '../services/youtube';
-import { getMatchDayIndex } from '../utils/streamMatching';
+import { getStreamDayIndex, getStreamLabel, hasStreamVideo } from '../utils/streamMatching';
 
 /**
  * StreamManager component - Manages multiple livestream inputs
@@ -50,67 +49,9 @@ function StreamManager({
     // Track which videoIds we've already fetched to prevent duplicate fetches
     const fetchedVideoIds = useRef(new Set());
 
-    // Validate stream dates against event dates
-    const validateStreamDate = (stream) => {
-        if (!stream.streamStartTime || !event) return null;
-
-        const streamDate = new Date(stream.streamStartTime);
-
-        // Convert timestamp to ISO string for getMatchDayIndex
-        const streamDateISO = streamDate.toISOString();
-
-        // Get the day index this stream should match based on its actual date
-        const actualDayIndex = getMatchDayIndex(streamDateISO, event.start);
-
-        // Check if stream's actual day differs from its assigned day
-        // Also ignore extreme differences (e.g. > 14 days) which imply data error/year mismatch
-        if (stream.dayIndex !== null && actualDayIndex !== stream.dayIndex && Math.abs(actualDayIndex - stream.dayIndex) < 14) {
-            // Find if there's another stream for the correct day
-            const correctDayStream = streams.find(s => s.dayIndex === actualDayIndex);
-
-            return {
-                mismatch: true,
-                streamDate: format(streamDate, 'MMM d, yyyy'),
-                expectedDay: stream.dayIndex + 1,
-                actualDay: actualDayIndex + 1,
-                canSwap: correctDayStream !== undefined,
-                correctDayStreamId: correctDayStream?.id
-            };
-        }
-
-        return null;
-    };
-
-    const swapStreams = (streamId1, streamId2) => {
-        const stream1 = streams.find(s => s.id === streamId1);
-        const stream2 = streams.find(s => s.id === streamId2);
-
-        if (!stream1 || !stream2) return;
-
-        // Swap URLs, videoIds, and stream start and end times
-        const updatedStreams = streams.map(s => {
-            if (s.id === streamId1) {
-                return {
-                    ...s,
-                    url: stream2.url,
-                    videoId: stream2.videoId,
-                    streamStartTime: stream2.streamStartTime,
-                    streamEndTime: stream2.streamEndTime
-                };
-            } else if (s.id === streamId2) {
-                return {
-                    ...s,
-                    url: stream1.url,
-                    videoId: stream1.videoId,
-                    streamStartTime: stream1.streamStartTime,
-                    streamEndTime: stream1.streamEndTime
-                };
-            }
-            return s;
-        });
-
-        onStreamsChange(updatedStreams);
-    };
+    // Boxes the user has typed into stay visible even when emptied (see the
+    // covered-day check below), so one doesn't vanish mid-edit.
+    const [editedStreamIds, setEditedStreamIds] = useState(() => new Set());
 
     // Fetch stream start times when stream URLs change
     useEffect(() => {
@@ -179,6 +120,8 @@ function StreamManager({
     };
 
     const handleStreamUrlChange = async (streamId, url) => {
+        setEditedStreamIds(prev => prev.has(streamId) ? prev : new Set(prev).add(streamId));
+
         // Extract video ID if URL is valid
         const videoId = extractVideoId(url);
 
@@ -389,7 +332,18 @@ function StreamManager({
                         filteredStreams = streams;
                     }
 
+                    // The days streams were live on. An empty slot for a day that
+                    // another slot's stream turned out to cover (Great Planes
+                    // 2026's Oct 3 stream sits in the Oct 2 slot) needs no box.
+                    const coveredDays = new Set(
+                        filteredStreams.map(s => getStreamDayIndex(s, event?.start)).filter(d => d !== null)
+                    );
+
                     return filteredStreams.map((stream) => {
+                        if (!stream.url && !hasStreamVideo(stream) && coveredDays.has(stream.dayIndex) && !editedStreamIds.has(stream.id)) {
+                            return null;
+                        }
+
                         // Vimeo days are pinned by the preset, not pasted as a
                         // URL, and there is no start time to detect — so there is
                         // nothing here for the admin-facing URL input to do.
@@ -400,7 +354,7 @@ function StreamManager({
                                     className="flex items-center justify-between gap-3 bg-black/40 border border-gray-800 rounded-lg px-4 py-3"
                                 >
                                     <div className="min-w-0">
-                                        <p className="text-sm font-medium text-gray-300">{stream.label}</p>
+                                        <p className="text-sm font-medium text-gray-300">{getStreamLabel(stream, event?.start)}</p>
                                         <p className="text-xs text-gray-500 mt-0.5">
                                             Vimeo livestream · synced to this day's first match
                                         </p>
@@ -417,44 +371,17 @@ function StreamManager({
                             );
                         }
 
-                        const validation = validateStreamDate(stream);
-
                         return (
                             <div key={stream.id}>
                                 <StreamInput
                                     stream={stream}
+                                    label={getStreamLabel(stream, event?.start)}
                                     loading={loading[stream.id]}
                                     error={errors[stream.id]}
                                     canRemove={streams.length > 1}
                                     onUrlChange={(url) => handleStreamUrlChange(stream.id, url)}
                                     onRemove={() => removeStream(stream.id)}
                                 />
-
-                                {/* Date validation warning */}
-                                {validation && validation.mismatch && (
-                                    <div className="mt-2 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-                                        <div className="flex items-start gap-2">
-                                            <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
-                                            <div className="flex-1">
-                                                <p className="text-sm text-orange-300 font-semibold">
-                                                    Stream date mismatch detected
-                                                </p>
-                                                <p className="text-xs text-orange-400/80 mt-1">
-                                                    This stream is from {validation.streamDate}, which matches Day {validation.actualDay} of the event,
-                                                    but it's assigned to Day {validation.expectedDay}.
-                                                </p>
-                                                {validation.canSwap && (
-                                                    <button
-                                                        onClick={() => swapStreams(stream.id, validation.correctDayStreamId)}
-                                                        className="mt-2 text-xs px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 rounded-lg transition-colors font-semibold"
-                                                    >
-                                                        Swap with Day {validation.actualDay} stream
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         );
                     })
@@ -467,13 +394,13 @@ function StreamManager({
 /**
  * Individual stream input component
  */
-function StreamInput({ stream, loading, error, canRemove, onUrlChange, onRemove }) {
+function StreamInput({ stream, label, loading, error, canRemove, onUrlChange, onRemove }) {
     return (
         <div className="relative">
             <div className="flex items-center gap-2">
                 <div className="flex-1">
                     <label className="block text-sm font-medium text-gray-400 mb-1.5">
-                        {stream.label}
+                        {label}
                         {loading && (
                             <span className="ml-2 text-xs text-[#4FCEEC]">
                                 <Loader className="inline w-3 h-3 animate-spin mr-1" />

@@ -9,7 +9,8 @@ export const config = {
 const RE_API = 'https://events.vex.com/api/v2';
 
 class UpstreamError extends Error {}
-const YT_START_CACHE_TTL = 86400; // 24 hours
+const YT_TIMES_CACHE_TTL = 86400; // 24 hours, once a stream has ended
+const YT_LIVE_TIMES_CACHE_TTL = 300; // while it is live, so its end time shows up
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -77,16 +78,16 @@ export default async function handler(req, res) {
 
         const allMatches = divisionMatches.flat();
 
-        // 4. Determine which video IDs are needed, fetch their YouTube start times
+        // 4. Determine which video IDs are needed, fetch their YouTube start and end times
         // Every stream a division could use, not just the one its calendar day
-        // points at: pickVideoId needs all their start times to choose between them.
+        // points at: pickVideoId needs all their times to choose between them.
         const neededVideoIds = new Set();
         for (const match of allMatches) {
             if (!match.started) continue;
             for (const id of divisionVideoIds(preset, String(match.division?.id || 1))) neededVideoIds.add(id);
         }
 
-        const streamStartTimes = await fetchStreamStartTimes([...neededVideoIds], ytApiKey);
+        const streamTimes = await fetchStreamTimes([...neededVideoIds], ytApiKey);
 
         // 4b. Vimeo presets carry their own per-day anchors instead of a stream
         // start time we can look up (see resolveVimeoDays).
@@ -108,8 +109,8 @@ export default async function handler(req, res) {
             const dayIndex = matchStartMs !== null
                 ? Math.max(0, Math.floor((matchStartMs - eventStartMs) / (1000 * 60 * 60 * 24)))
                 : 0;
-            const videoId = pickVideoId(preset, divisionId, dayIndex, matchStartMs, streamStartTimes);
-            const streamStartMs = videoId ? streamStartTimes[videoId] ?? null : null;
+            const videoId = pickVideoId(preset, divisionId, dayIndex, matchStartMs, streamTimes);
+            const streamStartMs = videoId ? streamTimes[videoId]?.start ?? null : null;
 
             let timestamp = null;
             let livestreamLink = null;
@@ -368,32 +369,46 @@ function divisionVideoIds(preset, divisionId) {
 //
 // YouTube reports when each stream went live, so the stream for a match is the
 // one that most recently went live before the match started. A match earlier
-// than every stream belongs to the first. Streams YouTube has no start time for
-// are left out; with fewer than two known, the calendar-day pick stands.
-function pickVideoId(preset, divisionId, dayIndex, matchStartMs, streamStartTimes) {
+// than every stream belongs to the first. The calendar-day pick stands when the
+// stream times can't settle it:
+// - fewer than two start times are known;
+// - one of the division's streams has no start time (not live yet, or removed,
+//   like Speedway 2026's day-3 video): it may be the one that was live, and
+//   skipping it sent the eliminations 26-30 hours into the 9-hour day-2 video;
+// - the stream had ended before the match started. Score 2025's Qualifier #79
+//   was played the morning before day 2's stream went live, and would otherwise
+//   land 23 hours into the day-1 video, past its end.
+// src/utils/streamMatching.js picks the same way for the viewer.
+function pickVideoId(preset, divisionId, dayIndex, matchStartMs, streamTimes) {
     const byDay = getVideoId(preset, divisionId, dayIndex);
     if (matchStartMs === null) return byDay;
-    const known = divisionVideoIds(preset, divisionId)
-        .filter(id => Number.isFinite(streamStartTimes[id]))
-        .sort((a, b) => streamStartTimes[a] - streamStartTimes[b]);
+    const startOf = id => streamTimes[id]?.start;
+    const ids = divisionVideoIds(preset, divisionId);
+    if (!ids.every(id => Number.isFinite(startOf(id)))) return byDay;
+    const known = [...ids].sort((a, b) => startOf(a) - startOf(b));
     if (known.length < 2) return byDay;
-    const live = known.filter(id => streamStartTimes[id] <= matchStartMs);
-    return live.length ? live[live.length - 1] : known[0];
+    const live = known.filter(id => startOf(id) <= matchStartMs);
+    if (!live.length) return known[0];
+    const picked = live[live.length - 1];
+    const end = streamTimes[picked].end;
+    return Number.isFinite(end) && end < matchStartMs ? byDay : picked;
 }
 
-async function fetchStreamStartTimes(videoIds, ytApiKey) {
+// When each stream went live and, once it has, when it ended:
+// { [videoId]: { start, end } } in epoch ms, end null while still live.
+async function fetchStreamTimes(videoIds, ytApiKey) {
     const result = {};
     if (!videoIds.length) return result;
 
     // Check KV cache for all IDs in parallel
     const cacheResults = await Promise.allSettled(
-        videoIds.map(id => kv.get(`yt_start_time:${id}`))
+        videoIds.map(id => kv.get(`yt_times:${id}`))
     );
 
     const missing = [];
     for (let i = 0; i < videoIds.length; i++) {
         const val = cacheResults[i].status === 'fulfilled' ? cacheResults[i].value : null;
-        if (val !== null) {
+        if (Number.isFinite(val?.start)) {
             result[videoIds[i]] = val;
         } else {
             missing.push(videoIds[i]);
@@ -413,9 +428,14 @@ async function fetchStreamStartTimes(videoIds, ytApiKey) {
         for (const item of ytData.items || []) {
             const actualStart = item.liveStreamingDetails?.actualStartTime;
             if (actualStart) {
-                const ms = new Date(actualStart).getTime();
-                result[item.id] = ms;
-                kv.set(`yt_start_time:${item.id}`, ms, { ex: YT_START_CACHE_TTL }).catch(() => {});
+                const actualEnd = item.liveStreamingDetails?.actualEndTime;
+                const times = {
+                    start: new Date(actualStart).getTime(),
+                    end: actualEnd ? new Date(actualEnd).getTime() : null,
+                };
+                result[item.id] = times;
+                const ttl = times.end === null ? YT_LIVE_TIMES_CACHE_TTL : YT_TIMES_CACHE_TTL;
+                kv.set(`yt_times:${item.id}`, times, { ex: ttl }).catch(() => {});
             }
         }
     }

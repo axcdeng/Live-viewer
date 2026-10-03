@@ -56,6 +56,63 @@ export const getMatchDayIndex = (matchDate, eventStartDate) => {
 };
 
 /**
+ * Which day of the event a stream went live on, counted the way match days
+ * are: on the calendar of the UTC offset the event's dates come in, which is
+ * the offset match times come in too.
+ * @param {Object} stream - Stream object
+ * @param {string} eventStartDate - ISO date string of event start
+ * @returns {number|null} Day index, or null when unknown or not during the event
+ */
+export const getStreamDayIndex = (stream, eventStartDate) => {
+    if (!stream?.streamStartTime || !eventStartDate) return null;
+
+    const offset = /([+-])(\d{2}):?(\d{2})$/.exec(eventStartDate);
+    const offsetMs = offset
+        ? (offset[1] === '-' ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3])) * 60000
+        : 0;
+    // The wall-clock date at that offset
+    const date = new Date(stream.streamStartTime + offsetMs).toISOString().slice(0, 10);
+
+    // A video from before the event, or weeks after it, is a wrong link, not a day.
+    if (date < eventStartDate.slice(0, 10)) return null;
+    const dayIndex = getMatchDayIndex(date, eventStartDate);
+    return dayIndex > 14 ? null : dayIndex;
+};
+
+/**
+ * A stream's label, by the day it went live.
+ *
+ * Preset streams are labelled by their day slot, a calendar day counted from
+ * the event's start date, but streams are now picked by when they were live
+ * (see streamLiveAtMatch), so a slot can hold another day's stream. Great
+ * Planes 2026's Oct 2 stream sits in the Oct 1 slot. Once YouTube says when a
+ * stream went live, it is labelled by that day; one live on its slot's day
+ * keeps its label.
+ * @param {Object} stream - Stream object
+ * @param {string} eventStartDate - ISO date string of event start
+ * @returns {string} Label
+ */
+export const getStreamLabel = (stream, eventStartDate) => {
+    if (stream?.dayIndex === null || stream?.dayIndex === undefined) return stream?.label;
+    const dayIndex = getStreamDayIndex(stream, eventStartDate);
+    if (dayIndex === null || dayIndex === stream.dayIndex) return stream.label;
+    return getDayLabel(dayIndex, eventStartDate);
+};
+
+/**
+ * "Day 2 - Oct 2" for a day index of the event.
+ * @param {number} dayIndex - Day index (0-based)
+ * @param {string} eventStartDate - ISO date string of event start
+ * @returns {string} Label
+ */
+export const getDayLabel = (dayIndex, eventStartDate) => {
+    if (!eventStartDate) return `Day ${dayIndex + 1}`;
+    const date = parseCalendarDate(eventStartDate);
+    date.setDate(date.getDate() + dayIndex);
+    return `Day ${dayIndex + 1} - ${format(date, 'MMM d')}`;
+};
+
+/**
  * Infer the day index for a match without a timestamp by looking at surrounding matches.
  * For elimination matches without timestamps, place them on the same day as the last 
  * qualification match that has a timestamp.
@@ -158,12 +215,12 @@ const candidateStreamsForMatch = (match, streams, matchDay) => {
  *
  * Each stream's start time says which matches it covers, so the stream for a
  * match is the one that most recently went live at or before the match
- * started, and a match earlier than every stream belongs to the first. That is
- * how api/match-timestamp.js picks. Here the stream must also not have ended
- * before the match: a match played the morning before its day's stream went
- * live (Score 2025's Qualifier #79) would otherwise land a day into the
- * previous day's video, past its end. A preset whose days line up gets the
- * same stream it always did.
+ * started, and a match earlier than every stream belongs to the first. The
+ * stream must also not have ended before the match: a match played the
+ * morning before its day's stream went live (Score 2025's Qualifier #79) would
+ * otherwise land a day into the previous day's video, past its end. A preset
+ * whose days line up gets the same stream it always did. pickVideoId in
+ * api/match-timestamp.js picks the same way.
  *
  * @param {Object} match - Match object
  * @param {Array} streams - Array of stream objects

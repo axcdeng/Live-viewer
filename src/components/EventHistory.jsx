@@ -2,7 +2,7 @@ import React from 'react';
 import { X, Clock, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { getAllHistory, deleteHistoryEntry } from '../services/eventCache';
-import { getMatchDayIndex } from '../utils/streamMatching';
+import { getMatchDayIndex, getStreamLabel } from '../utils/streamMatching';
 
 // Safe date formatting helper
 const safeFormat = (dateValue, formatStr, fallback = 'Unknown') => {
@@ -152,7 +152,7 @@ const EventHistory = ({ isOpen, onClose, onSelectEvent }) => {
                                                                 <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0 mt-0.5" />
                                                             )}
                                                             <div className="flex-1 min-w-0">
-                                                                <p className="text-xs text-gray-400 font-semibold">{stream.label}</p>
+                                                                <p className="text-xs text-gray-400 font-semibold">{getStreamLabel(stream, entry.eventStart)}</p>
                                                                 <p className="text-xs text-gray-500 truncate">{stream.url}</p>
                                                                 {warning && (
                                                                     <div className="mt-1 text-xs text-orange-400">
