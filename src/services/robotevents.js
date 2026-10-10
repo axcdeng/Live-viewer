@@ -31,6 +31,19 @@ export const getEventBySku = async (sku) => {
     throw new Error('Event not found');
 };
 
+// Many events in a few requests: axios sends the array as sku[]=A&sku[]=B, and the
+// list is chunked so the query string stays a sane length.
+export const getEventsBySkus = async (skus) => {
+    const client = getClient();
+    const chunks = [];
+    for (let i = 0; i < skus.length; i += 50) chunks.push(skus.slice(i, i + 50));
+
+    const pages = await Promise.all(chunks.map(chunk =>
+        client.get('/events', { params: { sku: chunk, per_page: 250 } })
+    ));
+    return pages.flatMap(response => response.data.data || []);
+};
+
 export const getTeamByNumber = async (number) => {
     const client = getClient();
     const response = await client.get('/teams', {

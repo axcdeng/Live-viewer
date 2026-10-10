@@ -496,6 +496,7 @@ Edge Config is globally replicated and has sub-millisecond read latency on Verce
 
 **Features:**
 - View all current routes loaded from `GET /api/get-all-routes`
+- Sort the route list by event date, latest or earliest first (dates are looked up from RobotEvents by SKU; the choice is remembered in `localStorage`)
 - Add a new route by entering a SKU, which auto-fetches event metadata from RobotEvents
 - Assign YouTube stream URLs per division per day (with auto-detect support calling the same `/api/detect-streams` endpoint)
 - Edit or delete existing routes

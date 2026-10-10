@@ -28,6 +28,7 @@ import { calculateEventDays, getMatchDayIndex, findStreamForMatch, getGrayOutRea
 import { configuredVimeoDays, resolveVimeoStreamStart } from '../services/vimeo';
 import VimeoPlayer from '../components/VimeoPlayer';
 import { parseCalendarDate } from '../utils/dateUtils';
+import { usePresetDates, sortPresetsByProximity, isEventLive } from '../utils/presetDates';
 import { YouTubeLanding } from '../utils/youtubeLanding';
 import { Analytics } from "@vercel/analytics/react";
 
@@ -212,6 +213,7 @@ function Viewer() {
     const [presets, setPresets] = useState([]);
     const [presetsLoading, setPresetsLoading] = useState(true);
     const [selectedPresetSku, setSelectedPresetSku] = useState('');
+    const presetDates = usePresetDates(presets);
     const urlPresetRef = useRef(null);
 
     // Multi-Division State
@@ -1757,8 +1759,8 @@ function Viewer() {
                                                     className="w-full bg-black border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:border-[#4FCEEC] focus:ring-1 focus:ring-[#4FCEEC] outline-none transition-all appearance-none cursor-pointer hover:border-gray-600 shadow-inner"
                                                 >
                                                     <option value="">Select an event...</option>
-                                                    {presets.map((p, idx) => (
-                                                        <option key={idx} value={p.sku}>{p.label}</option>
+                                                    {sortPresetsByProximity(presets, presetDates).map(({ preset: p, index, eventDates }) => (
+                                                        <option key={index} value={p.sku}>{isEventLive(eventDates) ? `[LIVE] - ${p.label}` : p.label}</option>
                                                     ))}
                                                 </select>
                                                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 group-hover:text-[#4FCEEC] transition-colors">

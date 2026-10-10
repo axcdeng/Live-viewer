@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList, RefreshCw, Layout, AlertCircle, Globe, Video } from 'lucide-react';
+import { Lock, Plus, Trash2, Save, Copy, Check, ExternalLink, Edit2, X, ChevronDown, ChevronRight, LayoutList, RefreshCw, Layout, AlertCircle, Globe, Video, Calendar } from 'lucide-react';
 import { getEventBySku } from '../services/robotevents';
 import { calculateEventDays } from '../utils/streamMatching';
 import { extractVideoId } from '../services/youtube';
 import { adminLogin, clearAdminToken, getAdminToken, saveRoutes } from '../adminAuth';
+import { formatEventDate } from '../utils/dateUtils';
+import { usePresetDates, sortPresetsByDate } from '../utils/presetDates';
+
+const SORT_ORDER_KEY = 'admin_route_sort_order';
 
 const extractSku = (text) => {
     if (!text) return '';
@@ -40,6 +44,14 @@ function Admin() {
     const [activeDivisionTab, setActiveDivisionTab] = useState(null);
     const [eventDivisions, setEventDivisions] = useState([]);
     const [divisionMismatchWarning, setDivisionMismatchWarning] = useState(null);
+    const routeDates = usePresetDates(routes);
+    const [sortOrder, setSortOrder] = useState(() => {
+        try {
+            return localStorage.getItem(SORT_ORDER_KEY) === 'earlier' ? 'earlier' : 'later';
+        } catch {
+            return 'later';
+        }
+    });
 
     // Header Management State
     const [showHeaderSection, setShowHeaderSection] = useState(false);
@@ -506,6 +518,15 @@ This was requested via Admin > Header Management > "Show to all users" for versi
         setTimeout(() => setCopied(false), 2000);
     };
 
+    const changeSortOrder = (order) => {
+        setSortOrder(order);
+        try {
+            localStorage.setItem(SORT_ORDER_KEY, order);
+        } catch {
+            // Remembering the order is a convenience; the toggle still works without it.
+        }
+    };
+
     const handleCopyLink = (path) => {
         const url = `${window.location.origin}/${path}`;
         navigator.clipboard.writeText(url);
@@ -889,8 +910,22 @@ This was requested via Admin > Header Management > "Show to all users" for versi
                             <h2 className="text-xl font-bold">Active Links</h2>
                             <p className="text-xs text-gray-500">Currently live and redirecting</p>
                         </div>
-                        <div className="text-xs font-mono text-gray-600 bg-gray-900 px-2 py-1 rounded">
-                            {routes.length} link{routes.length !== 1 ? 's' : ''}
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center bg-gray-900 border border-gray-800 rounded-lg p-0.5 text-[10px] font-bold uppercase tracking-widest">
+                                {[['later', 'Later'], ['earlier', 'Earlier']].map(([order, label]) => (
+                                    <button
+                                        key={order}
+                                        onClick={() => changeSortOrder(order)}
+                                        className={`px-2.5 py-1 rounded-md transition-colors ${sortOrder === order ? 'bg-[#4FCEEC] text-black' : 'text-gray-400 hover:text-white'}`}
+                                        title={order === 'later' ? 'Latest events first' : 'Earliest events first'}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="text-xs font-mono text-gray-600 bg-gray-900 px-2 py-1 rounded">
+                                {routes.length} link{routes.length !== 1 ? 's' : ''}
+                            </div>
                         </div>
                     </div>
 
@@ -901,7 +936,7 @@ This was requested via Admin > Header Management > "Show to all users" for versi
                                 <p className="text-gray-500">No links created yet.</p>
                             </div>
                         ) : (
-                            routes.map((route, idx) => (
+                            sortPresetsByDate(routes, routeDates, sortOrder).map(({ preset: route, index: idx, eventDates }) => (
                                 <div key={idx} className={`group bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-600 transition-all ${editingIndex === idx ? 'ring-2 ring-yellow-500/50 border-yellow-500/50' : 'shadow-lg'}`}>
                                     <div className="flex justify-between items-start gap-4">
                                         <div className="flex-1 min-w-0">
@@ -916,6 +951,12 @@ This was requested via Admin > Header Management > "Show to all users" for versi
                                                     <LayoutList className="w-3 h-3" />
                                                     <span className="font-mono">{route.sku}</span>
                                                 </div>
+                                                {eventDates && (
+                                                    <div className="flex items-center gap-1 text-xs text-gray-400">
+                                                        <Calendar className="w-3 h-3" />
+                                                        <span>{formatEventDate(eventDates.start, 'MMM d, yyyy')}</span>
+                                                    </div>
+                                                )}
                                                 <a
                                                     href={`/${route.path}`}
                                                     target="_blank"
