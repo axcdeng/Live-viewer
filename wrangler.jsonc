@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vex-jumper",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The Vite build. Exact file matches are served from the asset layer; any
+  // other path that is not an API route falls back to index.html (client-side
+  // routing), replacing the rewrites in vercel.json.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/sitemap.xml"]
+  },
+
+  // Preset route table ("routes" key) and the stream / YouTube start-time caches.
+  "kv_namespaces": [{ "binding": "STORE", "id": "ce86fcc88b1140b18eb1faa843381114" }],
+
+  // Cloudflare creates and owns the DNS record for exactly this hostname.
+  "routes": [{ "pattern": "jumper.robostem.org", "custom_domain": true }],
+  "workers_dev": true,
+  "observability": { "enabled": true }
+
+  // Secrets (wrangler secret put): ADMIN_USERNAME, ADMIN_PASSWORD,
+  // VITE_DEFAULT_ROBOTEVENTS_API_KEY, VITE_DEFAULT_YOUTUBE_API_KEY
+}

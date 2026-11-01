@@ -92,7 +92,6 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
 | [lucide-react](https://lucide.dev/) | Icons |
 | [clsx](https://github.com/lukeed/clsx) + [tailwind-merge](https://github.com/dcastil/tailwind-merge) | Conditional class utilities |
 | [axios](https://axios-http.com/) | HTTP client for API calls |
-| [Vercel Analytics](https://vercel.com/docs/analytics) | Page view tracking |
 
 ### Backend (Vercel Serverless Functions)
 
@@ -107,9 +106,9 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
 
 | Service | Usage |
 |---------|-------|
-| [Vercel](https://vercel.com/) | Hosting, serverless functions, CI/CD |
-| [Vercel KV](https://vercel.com/docs/storage/vercel-kv) | Redis-backed cache for detected stream data (1-hour TTL) |
-| [Vercel Edge Config](https://vercel.com/docs/storage/edge-config) | Low-latency store for the short link route table |
+| [Cloudflare Workers](https://workers.cloudflare.com/) | Hosting (static assets + API in `worker/`), deployed with `npx wrangler deploy` |
+| [Workers KV](https://developers.cloudflare.com/kv/) | Cache for detected stream data (1-hour TTL) |
+| [Workers KV](https://developers.cloudflare.com/kv/) | Store for the short link route table (`routes` key; seed in `data/preset-events.json`) |
 
 ### External APIs
 
@@ -127,7 +126,7 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
 - Node.js 18+
 - A RobotEvents API key ([get one here](https://www.robotevents.com/api/v2/))
 - A YouTube Data API v3 key ([Google Cloud Console](https://console.cloud.google.com/))
-- Vercel CLI (`npm i -g vercel`) for running serverless functions locally
+- Wrangler (installed as a dev dependency) for running the Worker locally
 
 ### Setup
 
@@ -156,7 +155,7 @@ Short paths like `/:shortCode` resolve through `RouteResolver.jsx` which fetches
    To run the serverless functions locally (stream detection, routes), use Vercel CLI:
 
    ```bash
-   vercel dev
+   npm run build && npx wrangler dev
    ```
 
    This starts both the Vite frontend and the API functions. The app will be at `http://localhost:3000`.
@@ -231,7 +230,8 @@ Output goes to `dist/`.
 ├── vite.config.js              # Vite configuration
 ├── vite-plugin-save-routes.js  # Dev-only plugin to mock the routes API
 ├── tailwind.config.js          # Tailwind configuration
-├── vercel.json                 # Vercel rewrite rules
+├── wrangler.jsonc              # Cloudflare Worker config
+├── worker/                     # Worker entry + KV store
 └── package.json
 ```
 

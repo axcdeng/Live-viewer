@@ -30,7 +30,6 @@ import VimeoPlayer from '../components/VimeoPlayer';
 import { parseCalendarDate } from '../utils/dateUtils';
 import { usePresetDates, sortPresetsByProximity, isEventLive } from '../utils/presetDates';
 import { YouTubeLanding } from '../utils/youtubeLanding';
-import { Analytics } from "@vercel/analytics/react";
 
 // Helper to auto-detect streams or fallback to defaults
 async function detectOrFallbackStreams(event, divisions) {
@@ -2659,7 +2658,6 @@ function Viewer() {
                     </p>
                 </footer>
             </main>
-            <Analytics debug={true} />
         </div>
     );
 }

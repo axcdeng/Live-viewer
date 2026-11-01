@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { kv } from '../worker/store.js';
 import * as cheerio from 'cheerio';
 
 /**

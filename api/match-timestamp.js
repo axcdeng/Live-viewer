@@ -1,5 +1,5 @@
-import { kv } from '@vercel/kv';
-import { createClient } from '@vercel/edge-config';
+import { kv } from '../worker/store.js';
+import { getRoutes } from '../worker/store.js';
 
 export const config = {
     runtime: 'nodejs',
@@ -33,9 +33,8 @@ export default async function handler(req, res) {
     try {
         // 1. The preset and the event's metadata (ID, divisions, start date) only
         // need the SKU, so they are fetched together.
-        const edgeClient = createClient(process.env.EDGE_CONFIG);
         const [routes, eventRes] = await Promise.all([
-            edgeClient.get('routes').then(r => r || []),
+            getRoutes(),
             fetch(`${RE_API}/events?sku[]=${encodeURIComponent(sku)}`, { headers: reHeaders }),
         ]);
         // An event nobody has set up can still be answered, if the caller says

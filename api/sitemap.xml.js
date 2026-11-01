@@ -1,4 +1,4 @@
-import { createClient } from '@vercel/edge-config';
+import { getRoutes } from '../worker/store.js';
 
 export const config = {
     runtime: 'edge', // Fast edge execution
@@ -65,8 +65,7 @@ function generateSitemapXml(routes) {
 
 export default async function handler(req) {
     try {
-        const client = createClient(process.env.EDGE_CONFIG);
-        const routes = await client.get('routes');
+        const routes = await getRoutes();
 
         const sitemapXml = generateSitemapXml(routes || []);
 
