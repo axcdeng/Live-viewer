@@ -1,14 +1,26 @@
 import { kv } from '../worker/store.js';
 import { getRoutes } from '../worker/store.js';
+import { reGet, RateLimited } from '../worker/robotevents.js';
 
 export const config = {
     runtime: 'nodejs',
     maxDuration: 60,
 };
 
-const RE_API = 'https://events.vex.com/api/v2';
-
 class UpstreamError extends Error {}
+
+// RobotEvents answers are cached in KV. An event's id, dates and divisions do
+// not change once it is running.
+const EVENT_TTL = 3600;
+
+/**
+ * How long a page of matches is kept: a minute while results are still coming
+ * in, a day once the event is two days over and its schedule is final.
+ */
+function matchesTtl(event) {
+    const end = new Date(event.end || event.start).getTime();
+    return Date.now() - end > 2 * 86400 * 1000 ? 86400 : 60;
+}
 const YT_TIMES_CACHE_TTL = 86400; // 24 hours, once a stream has ended
 const YT_LIVE_TIMES_CACHE_TTL = 300; // while it is live, so its end time shows up
 
@@ -26,16 +38,14 @@ export default async function handler(req, res) {
     }
 
     const offset = parseInt(offsetSeconds) || 0;
-    const reApiKey = process.env.ROBOTEVENTS_API_KEY || process.env.VITE_DEFAULT_ROBOTEVENTS_API_KEY;
     const ytApiKey = process.env.YOUTUBE_API_KEY || process.env.VITE_DEFAULT_YOUTUBE_API_KEY;
-    const reHeaders = { 'Authorization': `Bearer ${reApiKey}`, 'Accept': 'application/json' };
 
     try {
         // 1. The preset and the event's metadata (ID, divisions, start date) only
         // need the SKU, so they are fetched together.
         const [routes, eventRes] = await Promise.all([
             getRoutes(),
-            fetch(`${RE_API}/events?sku[]=${encodeURIComponent(sku)}`, { headers: reHeaders }),
+            reGet(`/events?sku[]=${encodeURIComponent(sku)}`, EVENT_TTL),
         ]);
         // An event nobody has set up can still be answered, if the caller says
         // which recordings to measure against. See adHocPreset.
@@ -48,12 +58,12 @@ export default async function handler(req, res) {
         // 2. Event metadata
         if (!eventRes.ok) return res.status(502).json({ error: 'Failed to fetch event' });
 
-        const eventData = await eventRes.json();
-        const event = eventData.data?.[0];
+        const event = eventRes.data.data?.[0];
         if (!event) return res.status(404).json({ error: 'Event not found in RobotEvents' });
 
         const eventStartMs = new Date(event.start).getTime();
         const divisions = event.divisions?.length ? event.divisions : [{ id: 1 }];
+        const matchesTTL = matchesTtl(event);
 
         // 3. Fetch all matches across all divisions in parallel (paginated).
         // A failed page fails the request: answering with part of the schedule
@@ -62,12 +72,12 @@ export default async function handler(req, res) {
             const matches = [];
             let page = 1;
             while (true) {
-                const r = await fetch(
-                    `${RE_API}/events/${event.id}/divisions/${div.id}/matches?per_page=250&page=${page}`,
-                    { headers: reHeaders }
+                const r = await reGet(
+                    `/events/${event.id}/divisions/${div.id}/matches?per_page=250&page=${page}`,
+                    matchesTTL
                 );
                 if (!r.ok) throw new UpstreamError(`Matches for division ${div.id} returned ${r.status}`);
-                const d = await r.json();
+                const d = r.data;
                 matches.push(...(d.data || []));
                 if (d.meta?.current_page >= d.meta?.last_page) break;
                 page++;
@@ -134,6 +144,10 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error('[match-timestamp]', error);
+        if (error instanceof RateLimited) {
+            res.setHeader('Retry-After', '60');
+            return res.status(503).json({ error: 'RobotEvents rate limit', message: error.message });
+        }
         if (error instanceof UpstreamError) {
             return res.status(502).json({ error: 'Failed to fetch matches', message: error.message });
         }

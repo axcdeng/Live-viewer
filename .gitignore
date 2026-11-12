@@ -32,3 +32,7 @@ yarn-error.log*
 # Agent workflows
 .agent
 .claude
+
+# Wrangler local secrets
+.dev.vars
+.wrangler

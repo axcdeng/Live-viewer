@@ -1,4 +1,5 @@
 import { kv } from '../worker/store.js';
+import { reGet } from '../worker/robotevents.js';
 import * as cheerio from 'cheerio';
 
 /**
@@ -529,19 +530,11 @@ function formatDate(date) {
     return `${months[date.getMonth()]} ${date.getDate()}`;
 }
 
-async function fetchEventDetails(sku, apiKey) {
+async function fetchEventDetails(sku) {
     try {
-        const response = await fetch(`https://events.vex.com/api/v2/events?sku[]=${sku}`, {
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json'
-            }
-        });
-
+        const response = await reGet(`/events?sku[]=${encodeURIComponent(sku)}`, 3600);
         if (!response.ok) return null;
-
-        const data = await response.json();
-        return data.data?.[0] || null;
+        return response.data.data?.[0] || null;
     } catch (e) {
         console.error('Error fetching event details:', e);
         return null;
