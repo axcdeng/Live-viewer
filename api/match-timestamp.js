@@ -21,6 +21,7 @@ function matchesTtl(event) {
     const end = new Date(event.end || event.start).getTime();
     return Date.now() - end > 2 * 86400 * 1000 ? 86400 : 60;
 }
+const MATCH_LENGTH_MS = 2 * 60 * 1000;
 const YT_TIMES_CACHE_TTL = 86400; // 24 hours, once a stream has ended
 const YT_LIVE_TIMES_CACHE_TTL = 300; // while it is live, so its end time shows up
 
@@ -131,7 +132,9 @@ export default async function handler(req, res) {
             const times = videoId ? streamTimes[videoId] : null;
             let outside = null;
             if (matchStartMs !== null && times) {
-                if (matchStartMs < times.start) outside = 'beforeStart';
+                // A match is about two minutes long, so one that began less than
+                // that before the stream still has its end on the recording.
+                if (matchStartMs + MATCH_LENGTH_MS < times.start) outside = 'beforeStart';
                 else if (Number.isFinite(times.end) && matchStartMs > times.end) outside = 'afterEnd';
             }
 
