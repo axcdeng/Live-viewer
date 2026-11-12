@@ -124,6 +124,17 @@ export default async function handler(req, res) {
             let timestamp = null;
             let livestreamLink = null;
 
+            // A match the picked stream does not contain: played before it went
+            // live, or after it ended. The seek still says where it would be, so
+            // a caller can offer the recording, but nothing should play it as
+            // this match.
+            const times = videoId ? streamTimes[videoId] : null;
+            let outside = null;
+            if (matchStartMs !== null && times) {
+                if (matchStartMs < times.start) outside = 'beforeStart';
+                else if (Number.isFinite(times.end) && matchStartMs > times.end) outside = 'afterEnd';
+            }
+
             if (matchStartMs !== null && streamStartMs !== null && videoId) {
                 const seekSeconds = Math.floor((matchStartMs - streamStartMs) / 1000) + offset;
                 timestamp = seekSeconds;
@@ -137,6 +148,7 @@ export default async function handler(req, res) {
                 timestamp,
                 livestreamLink,
                 videoId: videoId || null,
+                outside,
             };
         });
 
